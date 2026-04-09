@@ -17,24 +17,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 🐍 Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: ⚙️ Install required Python modules
-        run: |
-          pip install requests anynet beautifulsoup4
-
-      - name: ⬇️ Setup hactool-linux
-        run: |
-          if [ -f "hactool-linux" ]; then
-            cp hactool-linux hactool
-            chmod +x hactool
-          else
-            echo "Warning: hactool-linux non trouvé."
-          fi
-
       - name: 🔍 Check firmware version (Switch 1 only, >=21.0.0)
         id: version_check
         shell: bash
@@ -73,6 +55,27 @@ jobs:
             echo "firmware_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
           fi
           set -e
+
+      - name: 🐍 Setup Python
+        if: steps.version_check.outputs.new_version == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: ⚙️ Install required Python modules
+        if: steps.version_check.outputs.new_version == 'true'
+        run: |
+          pip install requests anynet beautifulsoup4
+
+      - name: ⬇️ Setup hactool-linux
+        if: steps.version_check.outputs.new_version == 'true'
+        run: |
+          if [ -f "hactool-linux" ]; then
+            cp hactool-linux hactool
+            chmod +x hactool
+          else
+            echo "Warning: hactool-linux non trouvé."
+          fi
 
       - name: 💻 Execute download script & Extract Release Notes
         id: download
