@@ -6,17 +6,12 @@ on:
   workflow_dispatch:
 
 jobs:
-  download_and_release:
+  check_update:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
+    outputs:
+      new_version: ${{ steps.version_check.outputs.new_version }}
+      firmware_version: ${{ steps.version_check.outputs.firmware_version }}
     steps:
-      - name: ⬇️ Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: 🔍 Check firmware version (Switch 1 only, >=21.0.0)
         id: version_check
         shell: bash
@@ -56,19 +51,29 @@ jobs:
           fi
           set -e
 
+  download_and_release:
+    needs: check_update
+    if: needs.check_update.outputs.new_version == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: ⬇️ Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: 🐍 Setup Python
-        if: steps.version_check.outputs.new_version == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
       - name: ⚙️ Install required Python modules
-        if: steps.version_check.outputs.new_version == 'true'
         run: |
           pip install requests anynet beautifulsoup4
 
       - name: ⬇️ Setup hactool-linux
-        if: steps.version_check.outputs.new_version == 'true'
         run: |
           if [ -f "hactool-linux" ]; then
             cp hactool-linux hactool
@@ -79,9 +84,8 @@ jobs:
 
       - name: 💻 Execute download script & Extract Release Notes
         id: download
-        if: steps.version_check.outputs.new_version == 'true'
         run: |
-          VERSION="${{ steps.version_check.outputs.firmware_version }}"
+          VERSION="${{ needs.check_update.outputs.firmware_version }}"
           
           # Exécution SANS paramètre pour que le script interroge lui-même l'API Nintendo
           python3 firmware_downloader.py | tee script_output.log
@@ -97,7 +101,6 @@ jobs:
           echo "$EOF" >> $GITHUB_ENV
 
       - name: 📦 Create Tag and Release
-        if: steps.version_check.outputs.new_version == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.download.outputs.firmware_version }}
