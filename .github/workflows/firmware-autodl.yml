@@ -8,6 +8,8 @@ on:
 jobs:
   check_update:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       new_version: ${{ steps.version_check.outputs.new_version }}
       firmware_version: ${{ steps.version_check.outputs.firmware_version }}
@@ -19,7 +21,7 @@ jobs:
           set +e
           RSS=$(curl -sL --fail https://yls8.mtheall.com/ninupdates/feed.php)
           if [ $? -ne 0 ] || [ -z "$RSS" ]; then
-            echo "new_version=false" >> $GITHUB_OUTPUT
+            echo "new_version=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -28,13 +30,13 @@ jobs:
             grep 'sys=hac' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -n 1)
 
           if [ -z "$LATEST_VERSION" ]; then
-            echo "new_version=false" >> $GITHUB_OUTPUT
+            echo "new_version=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
           if [ "$MAJOR" -lt 21 ]; then
-            echo "new_version=false" >> $GITHUB_OUTPUT
+            echo "new_version=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -44,10 +46,10 @@ jobs:
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/$LATEST_VERSION")
 
           if [ "$HTTP_STATUS" = "200" ]; then
-            echo "new_version=false" >> $GITHUB_OUTPUT
+            echo "new_version=false" >> "$GITHUB_OUTPUT"
           else
-            echo "new_version=true" >> $GITHUB_OUTPUT
-            echo "firmware_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+            echo "new_version=true" >> "$GITHUB_OUTPUT"
+            echo "firmware_version=$LATEST_VERSION" >> "$GITHUB_OUTPUT"
           fi
           set -e
 
@@ -61,13 +63,12 @@ jobs:
     steps:
       - name: ⬇️ Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+          cache: 'pip'
 
       - name: ⚙️ Install required Python modules
         run: |
@@ -89,16 +90,16 @@ jobs:
           
           # Exécution SANS paramètre pour que le script interroge lui-même l'API Nintendo
           python3 firmware_downloader.py | tee script_output.log
-          echo "firmware_version=$VERSION" >> $GITHUB_OUTPUT
+          echo "firmware_version=$VERSION" >> "$GITHUB_OUTPUT"
           
           # Extraction stricte des dernières lignes générées par le script Python
           sed -n '/Archive created:/,$p' script_output.log > changelog_body.txt
           
           # Stockage sécurisé et multi-lignes du texte pour GitHub Actions
           EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
-          echo "CHANGELOG_CONTENT<<$EOF" >> $GITHUB_ENV
-          cat changelog_body.txt >> $GITHUB_ENV
-          echo "$EOF" >> $GITHUB_ENV
+          echo "CHANGELOG_CONTENT<<$EOF" >> "$GITHUB_ENV"
+          cat changelog_body.txt >> "$GITHUB_ENV"
+          echo "$EOF" >> "$GITHUB_ENV"
 
       - name: 📦 Create Tag and Release
         uses: softprops/action-gh-release@v2
