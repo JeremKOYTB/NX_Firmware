@@ -104,17 +104,14 @@ jobs:
           echo "$EOF" >> "$GITHUB_ENV"
 
       - name: 📦 Create Tag and Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.download.outputs.firmware_version }}
-          name: Firmware ${{ steps.download.outputs.firmware_version }}
-          body: |
-            Automatic download of the official Nintendo Switch firmware version ${{ steps.download.outputs.firmware_version }}.
-            
-            Downloaded file details:
-            ${{ env.CHANGELOG_CONTENT }}
-          files: |
-            Firmware ${{ steps.download.outputs.firmware_version }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+          VERSION: ${{ steps.download.outputs.firmware_version }}
+        run: |
+          # Utilisation du client natif GitHub (gh) pour une exécution ultra-rapide et propre
+          gh release create "$VERSION" "Firmware ${VERSION}.zip" \
+            --title "Firmware $VERSION" \
+            --notes "Automatic download of the official Nintendo Switch firmware version $VERSION.
+            
+            Downloaded file details:
+            ${CHANGELOG_CONTENT}"
