@@ -14,7 +14,7 @@ on:
         description: 'Extraire les données du système (romfs, exefs) dans un ZIP séparé'
         required: false
         type: boolean
-        default: false
+        default: true
       build_nsp:
         description: 'Build NSP file ?'
         required: false
@@ -33,7 +33,7 @@ on:
 
 env:
   BUILD_NSP: ${{ inputs.build_nsp == true && 'true' || 'false' }}
-  EXTRACT_DATA: ${{ inputs.extract_data == true && 'true' || 'false' }}
+  EXTRACT_DATA: ${{ (github.event_name == 'schedule' || inputs.extract_data == true) && 'true' || 'false' }}
 
 jobs:
   check_update:
