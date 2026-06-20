@@ -1,0 +1,417 @@
+name: 🛠️ Firmware Inspector & Fixer
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_tag:
+        description: 'Tag à vérifier (ex: 1.0.0-pre). Tape ALL pour tout vérifier.'
+        required: true
+        type: string
+        default: 'ALL'
+      local_only:
+        description: 'Vérification 100% locale ? (Ne tente aucun téléchargement Nintendo)'
+        required: false
+        type: boolean
+        default: false
+      build_nsp:
+        description: 'Reconstruire le NSP ? (Optionnel. Si décoché, conservera le NSP existant s`il y en a un)'
+        required: false
+        type: boolean
+        default: false
+      extract_zip:
+        description: 'Extraire les données du système depuis le ZIP (romfs, exefs) ?'
+        required: false
+        type: boolean
+        default: false
+      extract_nsp:
+        description: 'Extraire les données du système depuis le NSP ?'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  prepare_matrix:
+    name: 🔍 Scan & Generate Parallel Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: ⬇️ Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📊 Build JSON Array
+        id: set-matrix
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TARGET="${{ inputs.target_tag }}"
+          if [ "$TARGET" = "ALL" ]; then
+            echo "INFO: Fetching all existing tags from repository..."
+            TAGS=$(gh release list -L 1000 --json tagName --jq '[.[].tagName]')
+          else
+            echo "INFO: Target is a single tag: $TARGET"
+            TAGS=$(jq -n --arg tag "$TARGET" '[$tag]')
+          fi
+          
+          if [ "$(echo "$TAGS" | jq 'length')" -eq 0 ]; then
+            echo "ERROR: No tags found to process."
+            exit 1
+          fi
+          
+          echo "matrix=$TAGS" >> "$GITHUB_OUTPUT"
+
+  verify_and_fix:
+    name: 🛠️ Fix -> ${{ matrix.tag }}
+    needs: prepare_matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        tag: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
+    steps:
+      - name: ⬇️ Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: 💾 Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-firmware-deps
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: ⚙️ Install required modules
+        run: |
+          # jq et unzip sont préinstallés sur ubuntu-latest, on zappe apt-get pour gagner du temps
+          pip install requests anynet cryptography tqdm beautifulsoup4
+
+      - name: ⬇️ Setup hactool-linux
+        run: |
+          if [ -f "hactool-linux" ]; then
+            cp hactool-linux hactool
+            chmod +x hactool
+          else
+            echo "Error: hactool-linux not found."
+            exit 1
+          fi
+
+      - name: 🕵️ Execute Verification
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LOCAL_ONLY: ${{ inputs.local_only }}
+          EXTRACT_ZIP: ${{ inputs.extract_zip }}
+          EXTRACT_NSP: ${{ inputs.extract_nsp }}
+          TAG: ${{ matrix.tag }}
+        run: |
+          set +e
+          
+          VERSIONS=(
+            "0.0.0.0330|1.0.0-pre|Firmware 1.0.0-89d9b_r49916 (pre)|2017-03-02"
+            "0.0.0.0450-card|1.0.0-card|Firmware 1.0.0 (Cartridge)|2017-03-02"
+            "0.0.0.0450|1.0.0|Firmware 1.0.0|2017-03-02"
+            "0.0.1.0230|2.0.0-pre|Firmware 2.0.0-pre|2017-03-02"
+            "0.0.1.0260|2.0.0|Firmware 2.0.0|2017-03-02"
+            "0.0.2.0090|2.1.0|Firmware 2.1.0|2017-03-27"
+            "0.0.3.0020|2.2.0|Firmware 2.2.0|2017-04-17"
+            "0.0.4.0020|2.3.0|Firmware 2.3.0|2017-05-15"
+            "3.0.0.0410|3.0.0|Firmware 3.0.0|2017-06-19"
+            "3.0.1.0050|3.0.1|Firmware 3.0.1|2017-07-31"
+            "3.0.2.0020|3.0.2|Firmware 3.0.2|2017-09-05"
+            "4.0.0.0200|4.0.0|Firmware 4.0.0|2017-10-18"
+            "4.0.1.0010|4.0.1|Firmware 4.0.1|2017-10-25"
+            "4.1.0.0050|4.1.0|Firmware 4.1.0|2017-12-04"
+            "5.0.0.0430|5.0.0|Firmware 5.0.0|2018-03-12"
+            "5.0.1.0030|5.0.1|Firmware 5.0.1|2018-03-26"
+            "5.0.2.0040|5.0.2|Firmware 5.0.2|2018-04-16"
+            "5.1.0.0080|5.1.0|Firmware 5.1.0|2018-05-30"
+            "6.0.0.0310|6.0.0-pre|Firmware 6.0.0-pre|2018-09-18"
+            "6.0.0.0360|6.0.0|Firmware 6.0.0|2018-09-18"
+            "6.0.1.0010|6.0.1|Firmware 6.0.1|2018-10-08"
+            "6.1.0.0090|6.1.0|Firmware 6.1.0|2018-10-29"
+            "6.2.0.0040|6.2.0|Firmware 6.2.0|2018-11-19"
+            "7.0.0.0200|7.0.0|Firmware 7.0.0|2019-01-28"
+            "7.0.1.0030|7.0.1|Firmware 7.0.1|2019-02-18"
+            "8.0.0.0530|8.0.0|Firmware 8.0.0|2019-04-15"
+            "8.0.1.0080|8.0.1|Firmware 8.0.1|2019-04-23"
+            "8.1.0.0120|8.1.0|Firmware 8.1.0|2019-06-17"
+            "8.1.1.0040|8.1.1-card|Firmware 8.1.1 (Cartridge)|2019-08-20"
+            "8.1.1.0030|8.1.1|Firmware 8.1.1|2019-08-20"
+            "9.0.0.0440|9.0.0|Firmware 9.0.0|2019-09-09"
+            "9.0.1.0100|9.0.1|Firmware 9.0.1|2019-09-30"
+            "9.1.0.0240|9.1.0|Firmware 9.1.0|2019-12-04"
+            "9.2.0.0020|9.2.0|Firmware 9.2.0|2020-03-03"
+            "10.0.0.0360|10.0.0|Firmware 10.0.0|2020-04-14"
+            "10.0.1.0020|10.0.1|Firmware 10.0.1|2020-04-22"
+            "10.0.2.0040|10.0.2|Firmware 10.0.2|2020-04-30"
+            "10.0.3.0020|10.0.3|Firmware 10.0.3|2020-05-26"
+            "10.0.4.0020|10.0.4|Firmware 10.0.4|2020-06-05"
+            "10.1.0.0120|10.1.0|Firmware 10.1.0|2020-07-14"
+            "10.1.1.0020|10.1.1|Firmware 10.1.1|2020-07-28"
+            "10.2.0.0060|10.2.0|Firmware 10.2.0|2020-09-15"
+            "11.0.0.0440|11.0.0|Firmware 11.0.0|2020-12-01"
+            "11.0.1.0020|11.0.1|Firmware 11.0.1|2020-12-11"
+            "11.0.1.1000|11.0.1-rebootless1|Firmware 11.0.1 [Rebootless Update 1]|2021-03-09"
+            "12.0.0.2520|12.0.0|Firmware 12.0.0|2021-04-06"
+            "12.0.1.0040|12.0.1|Firmware 12.0.1|2021-04-20"
+            "12.0.2.0020|12.0.2|Firmware 12.0.2|2021-05-12"
+            "12.0.3.0020|12.0.3|Firmware 12.0.3|2021-06-08"
+            "12.1.0.0120|12.1.0|Firmware 12.1.0|2021-07-06"
+            "13.0.0.0220|13.0.0|Firmware 13.0.0|2021-09-15"
+            "13.1.0.0160|13.1.0|Firmware 13.1.0|2021-10-26"
+            "13.2.0.0020|13.2.0|Firmware 13.2.0|2021-12-01"
+            "13.2.1.0080|13.2.1|Firmware 13.2.1|2022-01-20"
+            "14.0.0.1240|14.0.0|Firmware 14.0.0|2022-03-22"
+            "14.1.0.0020|14.1.0|Firmware 14.1.0|2022-04-05"
+            "14.1.1.0020|14.1.1|Firmware 14.1.1|2022-04-19"
+            "14.1.2.0060|14.1.2|Firmware 14.1.2|2022-06-14"
+            "14.1.2.5060|14.1.2-rebootless1|Firmware 14.1.2 [Rebootless Update 1]|2022-06-28"
+            "14.1.2.6020|14.1.2-rebootless2|Firmware 14.1.2 [Rebootless Update 2]|2022-07-26"
+            "14.1.2.8020|14.1.2-rebootless3|Firmware 14.1.2 [Rebootless Update 3]|2022-08-31"
+            "15.0.0.1200|15.0.0|Firmware 15.0.0|2022-10-11"
+            "15.0.1.0100|15.0.1|Firmware 15.0.1|2022-11-01"
+            "15.0.1.5020|15.0.1-rebootless1|Firmware 15.0.1 [Rebootless Update 1]|2022-12-20"
+            "16.0.0.1080|16.0.0|Firmware 16.0.0|2023-02-21"
+            "16.0.1.0060|16.0.1|Firmware 16.0.1|2023-03-23"
+            "16.0.2.0040|16.0.2|Firmware 16.0.2|2023-04-18"
+            "16.0.3.0020|16.0.3|Firmware 16.0.3|2023-05-09"
+            "16.0.3.5020|16.0.3-rebootless1|Firmware 16.0.3 [Rebootless Update 1]|2023-05-30"
+            "16.0.3.6020|16.0.3-rebootless2|Firmware 16.0.3 [Rebootless Update 2]|2023-06-27"
+            "16.1.0.0480|16.1.0|Firmware 16.1.0|2023-08-22"
+            "17.0.0.1020|17.0.0|Firmware 17.0.0|2023-10-11"
+            "17.0.0.5020|17.0.0-rebootless1|Firmware 17.0.0 [Rebootless Update 1]|2023-11-21"
+            "17.0.1.0060|17.0.1|Firmware 17.0.1|2023-12-05"
+            "17.0.1.5020|17.0.1-rebootless1|Firmware 17.0.1 [Rebootless Update 1]|2024-02-20"
+            "18.0.0.1140|18.0.0|Firmware 18.0.0|2024-03-26"
+            "18.0.1.0100|18.0.1|Firmware 18.0.1|2024-04-23"
+            "18.1.0.0160|18.1.0|Firmware 18.1.0|2024-06-11"
+            "18.1.0.5020|18.1.0-rebootless1|Firmware 18.1.0 [Rebootless Update 1]|2024-07-02"
+            "19.0.0.1080|19.0.0|Firmware 19.0.0|2024-10-08"
+            "19.0.1.0100|19.0.1|Firmware 19.0.1|2024-10-29"
+            "19.0.1.5020|19.0.1-rebootless1|Firmware 19.0.1 [Rebootless Update 1]|2025-01-07"
+            "19.0.2.0020|19.0.2|Firmware 19.0.2|2026-01-20"
+            "20.0.0.1720|20.0.0|Firmware 20.0.0|2025-04-30"
+            "20.0.1.0020|20.0.1|Firmware 20.0.1|2025-05-02"
+            "20.1.0.0360|20.1.0|Firmware 20.1.0|2025-05-28"
+            "20.1.1.0020|20.1.1|Firmware 20.1.1|2025-06-03"
+            "20.1.5.0160|20.1.5|Firmware 20.1.5|2025-06-19"
+            "20.2.0.0300|20.2.0|Firmware 20.2.0|2025-07-15"
+            "20.3.0.0080|20.3.0|Firmware 20.3.0|2025-07-29"
+            "20.4.0.0200|20.4.0|Firmware 20.4.0|2025-09-02"
+            "20.5.0.0100|20.5.0|Firmware 20.5.0|2025-09-30"
+            "21.0.0.0940|21.0.0|Firmware 21.0.0|2025-11-11"
+            "21.0.1.0040|21.0.1|Firmware 21.0.1|2025-11-25"
+            "21.1.0.0280|21.1.0|Firmware 21.1.0|2025-12-09"
+            "21.2.0.0140|21.2.0|Firmware 21.2.0|2026-01-13"
+            "22.0.0.1100|22.0.0|Firmware 22.0.0|2026-03-17"
+            "22.1.0.0200|22.1.0|Firmware 22.1.0|2026-04-07"
+          )
+
+          echo "========================================"
+          echo "🔍 INSPECTING RELEASE: $TAG"
+          echo "========================================"
+
+          RAW=""
+          OFFICIAL_DATE=""
+          
+          for item in "${VERSIONS[@]}"; do
+            IFS='|' read -r v_raw v_tag v_title v_date <<< "$item"
+            if [ "$v_tag" = "$TAG" ]; then
+              RAW="$v_raw"
+              OFFICIAL_DATE="$v_date"
+              break
+            fi
+          done
+
+          if [ -z "$RAW" ]; then
+            RAW=$(echo "$TAG" | sed 's/-card//')
+            OFFICIAL_DATE=$(date +"%Y-%m-%d")
+          fi
+
+          PYTHON_ARG=$(echo "$RAW" | sed 's/-card//')
+          FOLDER_NAME="Firmware ${PYTHON_ARG}"
+          CORRECT_ZIP_NAME="Firmware.${TAG}.zip"
+          CORRECT_NSP_NAME="Firmware.${TAG}.nsp"
+          
+          echo "⬇️ Downloading existing ZIP and NSP for $TAG..."
+          rm -f *.zip *.nsp
+          gh release download "$TAG" -p "*.zip" --clobber || true
+          gh release download "$TAG" -p "*.nsp" --clobber || true
+          
+          DOWNLOADED_ZIP=$(ls Firmware*.zip 2>/dev/null | grep -v -i "Extracted" | head -n 1)
+          DOWNLOADED_NSP=$(ls Firmware*.nsp 2>/dev/null | grep -v -i "Extracted" | head -n 1)
+          
+          if [ -n "$DOWNLOADED_ZIP" ] && [ -f "$DOWNLOADED_ZIP" ]; then
+            ORIGINAL_ZIP_HASH=$(sha256sum "$DOWNLOADED_ZIP" | awk '{print $1}')
+          else
+            ORIGINAL_ZIP_HASH="Not Found"
+          fi
+          
+          if [ "${{ inputs.build_nsp }}" == "true" ]; then
+            export FORCE_BUILD_NSP="true"
+            echo "INFO: NSP build requested by user."
+          else
+            export FORCE_BUILD_NSP="false"
+            echo "INFO: NSP build skipped by user."
+          fi
+          
+          if [ -n "$DOWNLOADED_ZIP" ]; then
+            echo "📦 Extracting $DOWNLOADED_ZIP strictly to $FOLDER_NAME..."
+            mkdir -p temp_extract
+            unzip -q "$DOWNLOADED_ZIP" -d temp_extract
+            
+            mkdir -p "$FOLDER_NAME"
+            find temp_extract -type f -name "*.nca" -exec mv {} "$FOLDER_NAME"/ \; 2>/dev/null || true
+            rm -rf temp_extract
+          else
+            echo "⚠️ No ZIP found on GitHub."
+          fi
+
+          echo "⚙️ Running firmware_downloader.py..."
+          echo "n" | python3 firmware_downloader.py "$PYTHON_ARG" | tee script_output.log
+          
+          sed -n '/Archive created:/,$p' script_output.log > changelog_body.txt
+          
+          sed -i -E "s/Archive created: .*/Archive created: ${CORRECT_ZIP_NAME}/g" changelog_body.txt
+          sed -i -E "s/NSP created: .*/NSP created: ${CORRECT_NSP_NAME}/g" changelog_body.txt
+          
+          sed -i "s/LOCAL_MODE_KEEP_HASH/$ORIGINAL_ZIP_HASH/g" changelog_body.txt
+          sed -i '/Not Found/d' changelog_body.txt
+          
+          if [ "$FORCE_BUILD_NSP" != "true" ] && [ -n "$DOWNLOADED_NSP" ]; then
+            echo "INFO: Injecting existing NSP details into changelog..."
+            EXISTING_HASH=$(sha256sum "$DOWNLOADED_NSP" | awk '{print $1}')
+            echo "" >> changelog_body.txt
+            echo "<details>" >> changelog_body.txt
+            echo "<summary>Click to view NSP details </summary>" >> changelog_body.txt
+            echo "" >> changelog_body.txt
+            echo "NSP created: $CORRECT_NSP_NAME" >> changelog_body.txt
+            echo "" >> changelog_body.txt
+            echo "SHA256: $EXISTING_HASH" >> changelog_body.txt
+            echo "</details>" >> changelog_body.txt
+          fi
+          
+          echo "📅 **Official Release Date:** $OFFICIAL_DATE" > new_notes.md
+          echo "" >> new_notes.md
+          echo "Download of Nintendo Switch firmware version $TAG." >> new_notes.md
+          echo "" >> new_notes.md
+          
+          if grep -q "NSP created" changelog_body.txt; then
+            echo "---" >> new_notes.md
+            echo "**PS: The NSP file is intended for preservation purposes only. Please use the ZIP archive for emulators and Switch hardware instead.**" >> new_notes.md
+            echo "" >> new_notes.md
+          fi
+          
+          echo "Downloaded file details:" >> new_notes.md
+          echo "" >> new_notes.md
+          cat changelog_body.txt >> new_notes.md
+          
+          NEW_ZIP="Firmware ${PYTHON_ARG}.zip"
+          NEW_NSP="Firmware ${PYTHON_ARG}.nsp"
+          
+          # === GESTION DU ZIP ===
+          if [ "$LOCAL_ONLY" == "true" ]; then
+            echo "✅ Local Mode: Original ZIP left completely untouched on GitHub."
+          else
+            if grep -Eq "Downloading .*\.nca" script_output.log; then
+              echo "🚨 Missing NCAs were downloaded by the script! Updating ZIP on GitHub..."
+              mv "$NEW_ZIP" "$CORRECT_ZIP_NAME"
+              gh release upload "$TAG" "$CORRECT_ZIP_NAME" --clobber
+              
+              if [ -n "$DOWNLOADED_ZIP" ] && [ "$DOWNLOADED_ZIP" != "$CORRECT_ZIP_NAME" ]; then
+                gh release delete-asset "$TAG" "$DOWNLOADED_ZIP" -y || true
+              fi
+            else
+              echo "✅ Keeping original ZIP (Complete mode)."
+              if [ -n "$DOWNLOADED_ZIP" ] && [ "$DOWNLOADED_ZIP" != "$CORRECT_ZIP_NAME" ]; then
+                echo "🔄 Fixing ZIP filename on GitHub to include the dot ($CORRECT_ZIP_NAME)..."
+                mv "$DOWNLOADED_ZIP" "$CORRECT_ZIP_NAME"
+                gh release upload "$TAG" "$CORRECT_ZIP_NAME" --clobber
+                gh release delete-asset "$TAG" "$DOWNLOADED_ZIP" -y || true
+              fi
+            fi
+          fi
+
+          # === GESTION DU NSP ===
+          if [ "$FORCE_BUILD_NSP" == "true" ] && [ -f "$NEW_NSP" ]; then
+            if grep -Eq "Downloading .*\.nca" script_output.log && [ "$LOCAL_ONLY" != "true" ]; then
+              echo "🚨 NCA downloaded: Updating NSP on GitHub..."
+              mv "$NEW_NSP" "$CORRECT_NSP_NAME"
+              gh release upload "$TAG" "$CORRECT_NSP_NAME" --clobber
+              if [ -n "$DOWNLOADED_NSP" ] && [ "$DOWNLOADED_NSP" != "$CORRECT_NSP_NAME" ]; then
+                gh release delete-asset "$TAG" "$DOWNLOADED_NSP" -y || true
+              fi
+            else
+              if [ -n "$DOWNLOADED_NSP" ] && [ "$DOWNLOADED_NSP" != "$CORRECT_NSP_NAME" ]; then
+                echo "🔄 Fixing NSP filename on GitHub to include the dot..."
+                mv "$DOWNLOADED_NSP" "$CORRECT_NSP_NAME"
+                gh release upload "$TAG" "$CORRECT_NSP_NAME" --clobber
+                gh release delete-asset "$TAG" "$DOWNLOADED_NSP" -y || true
+              elif [ -z "$DOWNLOADED_NSP" ]; then
+                echo "⬆️ Uploading forced NSP..."
+                mv "$NEW_NSP" "$CORRECT_NSP_NAME"
+                gh release upload "$TAG" "$CORRECT_NSP_NAME" --clobber
+              fi
+            fi
+          else
+            if [ -n "$DOWNLOADED_NSP" ] && [ "$DOWNLOADED_NSP" != "$CORRECT_NSP_NAME" ]; then
+              echo "🔄 Fixing existing NSP filename on GitHub to include the dot..."
+              mv "$DOWNLOADED_NSP" "$CORRECT_NSP_NAME"
+              gh release upload "$TAG" "$CORRECT_NSP_NAME" --clobber
+              gh release delete-asset "$TAG" "$DOWNLOADED_NSP" -y || true
+            fi
+          fi
+
+          # === GESTION DES EXTRACTIONS ===
+          EXTRACT_ZIP_FILE=$(ls Extracted_Firmware_*.zip 2>/dev/null | head -n 1)
+          if [ -n "$EXTRACT_ZIP_FILE" ] && [ -f "$EXTRACT_ZIP_FILE" ]; then 
+            CORRECT_EXTRACT_ZIP="Extracted.Firmware.${TAG}.zip"
+            echo "📦 Uploading Extracted ZIP Data..."
+            mv "$EXTRACT_ZIP_FILE" "$CORRECT_EXTRACT_ZIP"
+            gh release upload "$TAG" "$CORRECT_EXTRACT_ZIP" --clobber
+          fi
+
+          EXTRACT_NSP_FILE=$(ls Extracted_NSP_Firmware_*.zip 2>/dev/null | head -n 1)
+          if [ -n "$EXTRACT_NSP_FILE" ] && [ -f "$EXTRACT_NSP_FILE" ]; then 
+            CORRECT_EXTRACT_NSP="Extracted.NSP.Firmware.${TAG}.zip"
+            echo "📦 Uploading Extracted NSP Data..."
+            mv "$EXTRACT_NSP_FILE" "$CORRECT_EXTRACT_NSP"
+            gh release upload "$TAG" "$CORRECT_EXTRACT_NSP" --clobber
+          fi
+
+          echo "📝 Updating release text..."
+          gh release edit "$TAG" --notes-file new_notes.md
+
+          # === 🔒 LOGIQUE PARALLÈLE ULTRA-SÉCURISÉE POUR ALL_TITLES.JSON ===
+          if [ -f "json_updated.flag" ]; then
+            echo "🚀 Nouveaux ID trouvés par ce runner ! Tentative de synchronisation sécurisée..."
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            
+            for attempt in {1..10}; do
+              git add all_titles.json
+              git commit -m "Auto-update Title Database (all_titles.json) [Matrix: $TAG]" 2>/dev/null || true
+              
+              git pull origin main --rebase
+              
+              if git push origin HEAD:main; then
+                echo "✅ all_titles.json fusionné et mis à jour avec succès !"
+                break
+              else
+                echo "⚠️ Collision de push détectée (un autre runner a validé son JSON avant). Réessai dans un instant..."
+                sleep $((2 + RANDOM % 6))
+              fi
+            done
+            rm -f json_updated.flag
+          fi
+          
+          rm -rf "$FOLDER_NAME" *.zip *.nsp script_output.log new_notes.md changelog_body.txt
+          echo "⏳ Done with $TAG."

@@ -4,10 +4,289 @@ on:
   schedule:
     - cron: '0 * * * *'
   workflow_dispatch:
+    inputs:
+      download_all_missing:
+        description: 'Scanner et télécharger TOUT l`historique manquant (Si décoché, télécharge UNIQUEMENT la dernière version)'
+        required: false
+        type: boolean
+        default: false
+      extract_data:
+        description: 'Extraire les données du système (romfs, exefs) dans un ZIP séparé'
+        required: false
+        type: boolean
+        default: false
+      build_nsp:
+        description: 'Build NSP file ?'
+        required: false
+        type: boolean
+        default: false
+      firmware_version:
+        description: 'Precise version (e.g., 22.0.0.1100). Leave empty for default behavior.'
+        required: false
+        type: string
+        default: ''
+      reset_and_reorder:
+        description: '⚠️ DELETE ALL existing releases and recreate them in perfect chronological order?'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  BUILD_NSP: ${{ inputs.build_nsp == true && 'true' || 'false' }}
+  EXTRACT_DATA: ${{ inputs.extract_data == true && 'true' || 'false' }}
 
 jobs:
-  download_and_release:
+  check_update:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      new_version: ${{ steps.history_check.outputs.new_version }}
+      queue_json: ${{ steps.history_check.outputs.queue_json }}
+    steps:
+      - name: 🔍 Scan Release History & Build Queue
+        id: history_check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set +e
+
+          VERSIONS=(
+            "0.0.0.0330|1.0.0-pre|Firmware 1.0.0-89d9b_r49916 (pre)|2017-03-02"
+            "0.0.0.0450-card|1.0.0-card|Firmware 1.0.0 (Cartridge)|2017-03-02"
+            "0.0.0.0450|1.0.0|Firmware 1.0.0|2017-03-02"
+            "0.0.1.0230|2.0.0-pre|Firmware 2.0.0-pre|2017-03-02"
+            "0.0.1.0260|2.0.0|Firmware 2.0.0|2017-03-02"
+            "0.0.2.0090|2.1.0|Firmware 2.1.0|2017-03-27"
+            "0.0.3.0020|2.2.0|Firmware 2.2.0|2017-04-17"
+            "0.0.4.0020|2.3.0|Firmware 2.3.0|2017-05-15"
+            "3.0.0.0410|3.0.0|Firmware 3.0.0|2017-06-19"
+            "3.0.1.0050|3.0.1|Firmware 3.0.1|2017-07-31"
+            "3.0.2.0020|3.0.2|Firmware 3.0.2|2017-09-05"
+            "4.0.0.0200|4.0.0|Firmware 4.0.0|2017-10-18"
+            "4.0.1.0010|4.0.1|Firmware 4.0.1|2017-10-25"
+            "4.1.0.0050|4.1.0|Firmware 4.1.0|2017-12-04"
+            "5.0.0.0430|5.0.0|Firmware 5.0.0|2018-03-12"
+            "5.0.1.0030|5.0.1|Firmware 5.0.1|2018-03-26"
+            "5.0.2.0040|5.0.2|Firmware 5.0.2|2018-04-16"
+            "5.1.0.0080|5.1.0|Firmware 5.1.0|2018-05-30"
+            "6.0.0.0310|6.0.0-pre|Firmware 6.0.0-pre|2018-09-18"
+            "6.0.0.0360|6.0.0|Firmware 6.0.0|2018-09-18"
+            "6.0.1.0010|6.0.1|Firmware 6.0.1|2018-10-08"
+            "6.1.0.0090|6.1.0|Firmware 6.1.0|2018-10-29"
+            "6.2.0.0040|6.2.0|Firmware 6.2.0|2018-11-19"
+            "7.0.0.0200|7.0.0|Firmware 7.0.0|2019-01-28"
+            "7.0.1.0030|7.0.1|Firmware 7.0.1|2019-02-18"
+            "8.0.0.0530|8.0.0|Firmware 8.0.0|2019-04-15"
+            "8.0.1.0080|8.0.1|Firmware 8.0.1|2019-04-23"
+            "8.1.0.0120|8.1.0|Firmware 8.1.0|2019-06-17"
+            "8.1.1.0040|8.1.1-card|Firmware 8.1.1 (Cartridge)|2019-08-20"
+            "8.1.1.0030|8.1.1|Firmware 8.1.1|2019-08-20"
+            "9.0.0.0440|9.0.0|Firmware 9.0.0|2019-09-09"
+            "9.0.1.0100|9.0.1|Firmware 9.0.1|2019-09-30"
+            "9.1.0.0240|9.1.0|Firmware 9.1.0|2019-12-04"
+            "9.2.0.0020|9.2.0|Firmware 9.2.0|2020-03-03"
+            "10.0.0.0360|10.0.0|Firmware 10.0.0|2020-04-14"
+            "10.0.1.0020|10.0.1|Firmware 10.0.1|2020-04-22"
+            "10.0.2.0040|10.0.2|Firmware 10.0.2|2020-04-30"
+            "10.0.3.0020|10.0.3|Firmware 10.0.3|2020-05-26"
+            "10.0.4.0020|10.0.4|Firmware 10.0.4|2020-06-05"
+            "10.1.0.0120|10.1.0|Firmware 10.1.0|2020-07-14"
+            "10.1.1.0020|10.1.1|Firmware 10.1.1|2020-07-28"
+            "10.2.0.0060|10.2.0|Firmware 10.2.0|2020-09-15"
+            "11.0.0.0440|11.0.0|Firmware 11.0.0|2020-12-01"
+            "11.0.1.0020|11.0.1|Firmware 11.0.1|2020-12-11"
+            "11.0.1.1000|11.0.1-rebootless1|Firmware 11.0.1 [Rebootless Update 1]|2021-03-09"
+            "12.0.0.2520|12.0.0|Firmware 12.0.0|2021-04-06"
+            "12.0.1.0040|12.0.1|Firmware 12.0.1|2021-04-20"
+            "12.0.2.0020|12.0.2|Firmware 12.0.2|2021-05-12"
+            "12.0.3.0020|12.0.3|Firmware 12.0.3|2021-06-08"
+            "12.1.0.0120|12.1.0|Firmware 12.1.0|2021-07-06"
+            "13.0.0.0220|13.0.0|Firmware 13.0.0|2021-09-15"
+            "13.1.0.0160|13.1.0|Firmware 13.1.0|2021-10-26"
+            "13.2.0.0020|13.2.0|Firmware 13.2.0|2021-12-01"
+            "13.2.1.0080|13.2.1|Firmware 13.2.1|2022-01-20"
+            "14.0.0.1240|14.0.0|Firmware 14.0.0|2022-03-22"
+            "14.1.0.0020|14.1.0|Firmware 14.1.0|2022-04-05"
+            "14.1.1.0020|14.1.1|Firmware 14.1.1|2022-04-19"
+            "14.1.2.0060|14.1.2|Firmware 14.1.2|2022-06-14"
+            "14.1.2.5060|14.1.2-rebootless1|Firmware 14.1.2 [Rebootless Update 1]|2022-06-28"
+            "14.1.2.6020|14.1.2-rebootless2|Firmware 14.1.2 [Rebootless Update 2]|2022-07-26"
+            "14.1.2.8020|14.1.2-rebootless3|Firmware 14.1.2 [Rebootless Update 3]|2022-08-31"
+            "15.0.0.1200|15.0.0|Firmware 15.0.0|2022-10-11"
+            "15.0.1.0100|15.0.1|Firmware 15.0.1|2022-11-01"
+            "15.0.1.5020|15.0.1-rebootless1|Firmware 15.0.1 [Rebootless Update 1]|2022-12-20"
+            "16.0.0.1080|16.0.0|Firmware 16.0.0|2023-02-21"
+            "16.0.1.0060|16.0.1|Firmware 16.0.1|2023-03-23"
+            "16.0.2.0040|16.0.2|Firmware 16.0.2|2023-04-18"
+            "16.0.3.0020|16.0.3|Firmware 16.0.3|2023-05-09"
+            "16.0.3.5020|16.0.3-rebootless1|Firmware 16.0.3 [Rebootless Update 1]|2023-05-30"
+            "16.0.3.6020|16.0.3-rebootless2|Firmware 16.0.3 [Rebootless Update 2]|2023-06-27"
+            "16.1.0.0480|16.1.0|Firmware 16.1.0|2023-08-22"
+            "17.0.0.1020|17.0.0|Firmware 17.0.0|2023-10-11"
+            "17.0.0.5020|17.0.0-rebootless1|Firmware 17.0.0 [Rebootless Update 1]|2023-11-21"
+            "17.0.1.0060|17.0.1|Firmware 17.0.1|2023-12-05"
+            "17.0.1.5020|17.0.1-rebootless1|Firmware 17.0.1 [Rebootless Update 1]|2024-02-20"
+            "18.0.0.1140|18.0.0|Firmware 18.0.0|2024-03-26"
+            "18.0.1.0100|18.0.1|Firmware 18.0.1|2024-04-23"
+            "18.1.0.0160|18.1.0|Firmware 18.1.0|2024-06-11"
+            "18.1.0.5020|18.1.0-rebootless1|Firmware 18.1.0 [Rebootless Update 1]|2024-07-02"
+            "19.0.0.1080|19.0.0|Firmware 19.0.0|2024-10-08"
+            "19.0.1.0100|19.0.1|Firmware 19.0.1|2024-10-29"
+            "19.0.1.5020|19.0.1-rebootless1|Firmware 19.0.1 [Rebootless Update 1]|2025-01-07"
+            "19.0.2.0020|19.0.2|Firmware 19.0.2|2026-01-20"
+            "20.0.0.1720|20.0.0|Firmware 20.0.0|2025-04-30"
+            "20.0.1.0020|20.0.1|Firmware 20.0.1|2025-05-02"
+            "20.1.0.0360|20.1.0|Firmware 20.1.0|2025-05-28"
+            "20.1.1.0020|20.1.1|Firmware 20.1.1|2025-06-03"
+            "20.1.5.0160|20.1.5|Firmware 20.1.5|2025-06-19"
+            "20.2.0.0300|20.2.0|Firmware 20.2.0|2025-07-15"
+            "20.3.0.0080|20.3.0|Firmware 20.3.0|2025-07-29"
+            "20.4.0.0200|20.4.0|Firmware 20.4.0|2025-09-02"
+            "20.5.0.0100|20.5.0|Firmware 20.5.0|2025-09-30"
+            "21.0.0.0940|21.0.0|Firmware 21.0.0|2025-11-11"
+            "21.0.1.0040|21.0.1|Firmware 21.0.1|2025-11-25"
+            "21.1.0.0280|21.1.0|Firmware 21.1.0|2025-12-09"
+            "21.2.0.0140|21.2.0|Firmware 21.2.0|2026-01-13"
+            "22.0.0.1100|22.0.0|Firmware 22.0.0|2026-03-17"
+            "22.1.0.0200|22.1.0|Firmware 22.1.0|2026-04-07"
+          )
+
+          MANUAL_VERSION="${{ inputs.firmware_version }}"
+          RESET_MODE="${{ inputs.reset_and_reorder }}"
+          DOWNLOAD_ALL="${{ inputs.download_all_missing }}"
+          MISSING_JSON="["
+          COUNT=0
+
+          if [ "$RESET_MODE" = "true" ]; then
+            echo "⚠️ WARNING: Reset mode enabled. Purging existing releases..."
+            MASTER_INDEX=0
+            for item in "${VERSIONS[@]}"; do
+              MASTER_INDEX=$((MASTER_INDEX+1))
+              IFS='|' read -r raw tag title fw_date <<< "$item"
+              gh release delete "$tag" -R ${{ github.repository }} -y --cleanup-tag 2>/dev/null || true
+              if [ $COUNT -gt 0 ]; then MISSING_JSON+=", "; fi
+              MISSING_JSON+="{\"raw\":\"$raw\", \"tag\":\"$tag\", \"title\":\"$title\", \"fw_date\":\"$fw_date\", \"m_idx\":\"$MASTER_INDEX\"}"
+              COUNT=$((COUNT+1))
+            done
+            MISSING_JSON+="]"
+            echo "new_version=true" >> "$GITHUB_OUTPUT"
+            echo "queue_json=$MISSING_JSON" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -n "$MANUAL_VERSION" ]; then
+            echo "INFO: Manual run requested for version $MANUAL_VERSION"
+            MATCH_RAW="$MANUAL_VERSION"
+            MATCH_TAG=$(echo "$MANUAL_VERSION" | cut -d. -f1-3)
+            MATCH_TITLE="Firmware $MATCH_TAG"
+            MATCH_DATE="LATEST"
+            
+            MASTER_INDEX=0
+            for item in "${VERSIONS[@]}"; do
+              MASTER_INDEX=$((MASTER_INDEX+1))
+              IFS='|' read -r raw tag title fw_date <<< "$item"
+              if [ "$raw" = "$MANUAL_VERSION" ] || [ "$tag" = "$MANUAL_VERSION" ]; then
+                MATCH_RAW="$raw"
+                MATCH_TAG="$tag"
+                MATCH_TITLE="$title"
+                MATCH_DATE="$fw_date"
+                MATCH_IDX="$MASTER_INDEX"
+                break
+              fi
+            done
+            MISSING_JSON+="{\"raw\":\"$MATCH_RAW\", \"tag\":\"$MATCH_TAG\", \"title\":\"$MATCH_TITLE\", \"fw_date\":\"$MATCH_DATE\", \"m_idx\":\"$MATCH_IDX\"}]"
+            echo "new_version=true" >> "$GITHUB_OUTPUT"
+            echo "queue_json=$MISSING_JSON" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "INFO: Scanning repository deployment history..."
+          EXISTING_TAGS=$(gh release list -R ${{ github.repository }} --limit 1000 --json tagName --jq '.[].tagName')
+
+          if [ "$DOWNLOAD_ALL" = "false" ] || [ -z "$DOWNLOAD_ALL" ]; then
+            echo "INFO: Default Mode -> Scanning for the LATEST available version only."
+            
+            RSS=$(curl -sL --retry 3 --fail https://yls8.mtheall.com/ninupdates/feed.php || echo "")
+            LATEST_FOUND="false"
+            
+            if [ -n "$RSS" ]; then
+              LATEST_VERSION=$(echo "$RSS" | tr -d '\n' | sed 's/<item>/\n<item>/g' | grep 'sys=hac' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -n 1)
+              if [ -n "$LATEST_VERSION" ]; then
+                MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
+                if [ "$MAJOR" -ge 21 ]; then
+                  if ! echo "$EXISTING_TAGS" | grep -qxF "$LATEST_VERSION"; then
+                    echo "LIVE UPDATE FOUND via RSS: Version $LATEST_VERSION"
+                    ITEM_BLOCK=$(echo "$RSS" | tr -d '\n' | sed 's/<item>/\n<item>/g' | grep 'sys=hac' | grep -F "$LATEST_VERSION" | head -n 1)
+                    PUB_DATE_RAW=$(echo "$ITEM_BLOCK" | grep -oP '(?<=<pubDate>).*?(?=</pubDate>)' || echo "")
+                    
+                    RSS_DATE=""
+                    if [ -n "$PUB_DATE_RAW" ]; then
+                      RSS_DATE=$(date -d "$PUB_DATE_RAW" +"%Y-%m-%d" 2>/dev/null || echo "")
+                    fi
+                    if [ -z "$RSS_DATE" ]; then RSS_DATE=$(date +"%Y-%m-%d"); fi
+
+                    MISSING_JSON+="{\"raw\":\"LATEST\", \"tag\":\"$LATEST_VERSION\", \"title\":\"Firmware $LATEST_VERSION\", \"fw_date\":\"$RSS_DATE\", \"m_idx\":\"999\"}]"
+                    echo "new_version=true" >> "$GITHUB_OUTPUT"
+                    echo "queue_json=$MISSING_JSON" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  else
+                    LATEST_FOUND="true"
+                    echo "INFO: Latest RSS version ($LATEST_VERSION) is already deployed."
+                  fi
+                fi
+              fi
+            fi
+            
+            if [ "$LATEST_FOUND" = "false" ]; then
+              LAST_INDEX=$((${#VERSIONS[@]}-1))
+              LAST_ITEM="${VERSIONS[$LAST_INDEX]}"
+              IFS='|' read -r raw tag title fw_date <<< "$LAST_ITEM"
+              
+              if ! echo "$EXISTING_TAGS" | grep -qxF "$tag"; then
+                echo "MISSING LATEST FROM LIST: $tag"
+                MISSING_JSON+="{\"raw\":\"$raw\", \"tag\":\"$tag\", \"title\":\"$title\", \"fw_date\":\"$fw_date\", \"m_idx\":\"$LAST_INDEX\"}]"
+                echo "new_version=true" >> "$GITHUB_OUTPUT"
+                echo "queue_json=$MISSING_JSON" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+            
+            echo "INFO: Repository is completely up to date with the latest version."
+            echo "new_version=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "INFO: Download All Mode -> Scanning entire list for missing firmwares..."
+          MASTER_INDEX=0
+          for item in "${VERSIONS[@]}"; do
+            MASTER_INDEX=$((MASTER_INDEX+1))
+            IFS='|' read -r raw tag title fw_date <<< "$item"
+            if ! echo "$EXISTING_TAGS" | grep -qxF "$tag"; then
+              if [ $COUNT -gt 0 ]; then MISSING_JSON+=", "; fi
+              MISSING_JSON+="{\"raw\":\"$raw\", \"tag\":\"$tag\", \"title\":\"$title\", \"fw_date\":\"$fw_date\", \"m_idx\":\"$MASTER_INDEX\"}"
+              COUNT=$((COUNT+1))
+            fi
+          done
+
+          if [ "$COUNT" -gt 0 ]; then
+            MISSING_JSON+="]"
+            echo "new_version=true" >> "$GITHUB_OUTPUT"
+            echo "queue_json=$MISSING_JSON" >> "$GITHUB_OUTPUT"
+          else
+            echo "INFO: All versions are up to date."
+            echo "new_version=false" >> "$GITHUB_OUTPUT"
+          fi
+          set -e
+
+  download_and_release:
+    name: ⬇️ Execute Download Queue
+    needs: check_update
+    if: needs.check_update.outputs.new_version == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
     permissions:
       contents: write
 
@@ -15,16 +294,17 @@ jobs:
       - name: ⬇️ Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: main
 
       - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
-      - name: ⚙️ Install required Python modules
+      - name: ⚙️ Install required modules
         run: |
-          pip install requests anynet beautifulsoup4
+          sudo apt-get install -y jq unzip
+          pip install requests anynet cryptography tqdm beautifulsoup4
 
       - name: ⬇️ Setup hactool-linux
         run: |
@@ -32,79 +312,149 @@ jobs:
             cp hactool-linux hactool
             chmod +x hactool
           else
-            echo "Warning: hactool-linux non trouvé."
+            echo "Error: hactool-linux not found."
+            exit 1
           fi
 
-      - name: 🔍 Check firmware version (Switch 1 only, >=21.0.0)
-        id: version_check
-        shell: bash
-        run: |
-          set +e
-          RSS=$(curl -sL --fail https://yls8.mtheall.com/ninupdates/feed.php)
-          if [ $? -ne 0 ] || [ -z "$RSS" ]; then
-            echo "new_version=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # Extraction stricte Switch 1 (hac) + Tri version
-          LATEST_VERSION=$(echo "$RSS" | tr -d '\n' | sed 's/<item>/\n<item>/g' | \
-            grep 'sys=hac' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -n 1)
-
-          if [ -z "$LATEST_VERSION" ]; then
-            echo "new_version=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
-          if [ "$MAJOR" -lt 21 ]; then
-            echo "new_version=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # Check si la Release existe
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$LATEST_VERSION")
-
-          if [ "$HTTP_STATUS" = "200" ]; then
-            echo "new_version=false" >> $GITHUB_OUTPUT
-          else
-            echo "new_version=true" >> $GITHUB_OUTPUT
-            echo "firmware_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-          fi
-          set -e
-
-      - name: 💻 Execute download script & Extract Release Notes
-        id: download
-        if: steps.version_check.outputs.new_version == 'true'
-        run: |
-          VERSION="${{ steps.version_check.outputs.firmware_version }}"
-          
-          # Exécution SANS paramètre pour que le script interroge lui-même l'API Nintendo
-          python3 firmware_downloader.py | tee script_output.log
-          echo "firmware_version=$VERSION" >> $GITHUB_OUTPUT
-          
-          # Extraction stricte des dernières lignes générées par le script Python
-          sed -n '/Archive created:/,$p' script_output.log > changelog_body.txt
-          
-          # Stockage sécurisé et multi-lignes du texte pour GitHub Actions
-          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
-          echo "CHANGELOG_CONTENT<<$EOF" >> $GITHUB_ENV
-          cat changelog_body.txt >> $GITHUB_ENV
-          echo "$EOF" >> $GITHUB_ENV
-
-      - name: 📦 Create Tag and Release
-        if: steps.version_check.outputs.new_version == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.download.outputs.firmware_version }}
-          name: Firmware ${{ steps.download.outputs.firmware_version }}
-          body: |
-            Automatic download of the official Nintendo Switch firmware version ${{ steps.download.outputs.firmware_version }}.
-            
-            Downloaded file details:
-            ${{ env.CHANGELOG_CONTENT }}
-          files: |
-            Firmware ${{ steps.download.outputs.firmware_version }}.zip
+      - name: 💻 Process Queue Sequentially
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo '${{ needs.check_update.outputs.queue_json }}' > queue.json
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          TOTAL_ITEMS=$(jq length queue.json)
+          
+          for (( i=0; i<TOTAL_ITEMS; i++ )); do
+            CURRENT_INDEX=$((i + 1))
+            item=$(jq -c ".[$i]" queue.json)
+            
+            VERSION=$(echo "$item" | jq -r '.raw')
+            CUSTOM_TAG=$(echo "$item" | jq -r '.tag')
+            CUSTOM_TITLE=$(echo "$item" | jq -r '.title')
+            FW_DATE=$(echo "$item" | jq -r '.fw_date')
+            M_IDX=$(echo "$item" | jq -r '.m_idx // "999"')
+            
+            echo "========================================"
+            echo "🚀 PROCESSING: $CUSTOM_TITLE ($CUSTOM_TAG) [$CURRENT_INDEX/$TOTAL_ITEMS]"
+            echo "========================================"
+            
+            if [ "$VERSION" = "LATEST" ]; then
+              PYTHON_ARG=""
+              FILE_MATCH="Firmware ${CUSTOM_TAG}"
+            else
+              PYTHON_ARG=$(echo "$VERSION" | sed 's/-card//')
+              FILE_MATCH="Firmware ${PYTHON_ARG}"
+            fi
+            
+            export FORCE_BUILD_NSP="${{ env.BUILD_NSP }}"
+            export EXTRACT_DATA="${{ env.EXTRACT_DATA }}"
+            
+            echo "n" | python3 firmware_downloader.py "$PYTHON_ARG" | tee script_output.log
+            
+            # --- AUTO-UPDATE JSON COMMIT ---
+            if [ -f "json_updated.flag" ]; then
+              echo "🚀 Pushing updated Title Database to repository..."
+              git add all_titles.json
+              git commit -m "Auto-update Title Database (all_titles.json)"
+              git push origin HEAD:main || echo "Nothing to push"
+              rm -f json_updated.flag
+            fi
+            
+            VER_RAW=$(grep "Internal version:" script_output.log | sed -E 's/.*Internal version: ([0-9]+).*/\1/' || echo "0")
+            
+            sed -n '/Archive created:/,$p' script_output.log > changelog_body.txt
+            
+            CORRECT_ZIP_NAME="Firmware.${CUSTOM_TAG}.zip"
+            CORRECT_NSP_NAME="Firmware.${CUSTOM_TAG}.nsp"
+            
+            if [ "$FILE_MATCH" != "Firmware ${CUSTOM_TAG}" ]; then
+              if [ -f "${FILE_MATCH}.zip" ]; then mv "${FILE_MATCH}.zip" "$CORRECT_ZIP_NAME"; fi
+              if [ -f "${FILE_MATCH}.nsp" ]; then mv "${FILE_MATCH}.nsp" "$CORRECT_NSP_NAME"; fi
+            else
+              if [ -f "${FILE_MATCH}.zip" ]; then mv "${FILE_MATCH}.zip" "$CORRECT_ZIP_NAME"; fi
+              if [ -f "${FILE_MATCH}.nsp" ]; then mv "${FILE_MATCH}.nsp" "$CORRECT_NSP_NAME"; fi
+            fi
+            
+            sed -i -E "s/Archive created: .*/Archive created: ${CORRECT_ZIP_NAME}/g" changelog_body.txt
+            sed -i -E "s/NSP created: .*/NSP created: ${CORRECT_NSP_NAME}/g" changelog_body.txt
+            sed -i '/Not Found/d' changelog_body.txt
+            
+            MIN_SIZE=$((50 * 1024 * 1024))
+            if [ -f "$CORRECT_ZIP_NAME" ]; then
+              FILE_SIZE=$(stat -c%s "$CORRECT_ZIP_NAME")
+              if [ "$FILE_SIZE" -lt "$MIN_SIZE" ]; then
+                echo "WARNING: Zip archive is incomplete ($FILE_SIZE bytes). Stripping assets."
+                rm -f "$CORRECT_ZIP_NAME" "$CORRECT_NSP_NAME"
+              fi
+            fi
+            
+            ASSETS=()
+            if [ -f "$CORRECT_ZIP_NAME" ]; then ASSETS+=("$CORRECT_ZIP_NAME"); fi
+            if [ -f "$CORRECT_NSP_NAME" ]; then ASSETS+=("$CORRECT_NSP_NAME"); fi
+            
+            EXTRACT_ZIP=$(ls Extracted_Firmware_*.zip 2>/dev/null | head -n 1)
+            CORRECT_EXTRACT_ZIP="Extracted.Firmware.${CUSTOM_TAG}.zip"
+            if [ -n "$EXTRACT_ZIP" ] && [ -f "$EXTRACT_ZIP" ]; then 
+              mv "$EXTRACT_ZIP" "$CORRECT_EXTRACT_ZIP"
+              ASSETS+=("$CORRECT_EXTRACT_ZIP")
+            fi
+            
+            if [ "$FW_DATE" = "LATEST" ] || [ -z "$FW_DATE" ] || [ "$FW_DATE" = "null" ]; then
+              DISPLAY_DATE=$(date +"%Y-%m-%d")
+            else
+              DISPLAY_DATE=$(echo "$FW_DATE" | cut -d' ' -f1)
+            fi
+            
+            echo "📅 **Official Release Date:** $DISPLAY_DATE" > release_notes.md
+            echo "" >> release_notes.md
+            echo "Automatic download of the official Nintendo Switch firmware version $CUSTOM_TAG." >> release_notes.md
+            echo "" >> release_notes.md
+            
+            if [ "${{ env.BUILD_NSP }}" == "true" ] && [ -f "$CORRECT_NSP_NAME" ]; then
+              echo "---" >> release_notes.md
+              echo "**PS: The NSP file is intended for preservation purposes only. Please use the ZIP archive for emulators and Switch hardware instead.**" >> release_notes.md
+              echo "" >> release_notes.md
+            fi
+            
+            echo "Downloaded file details:" >> release_notes.md
+            echo "" >> release_notes.md
+            if [ -f "changelog_body.txt" ]; then
+              cat changelog_body.txt >> release_notes.md
+            fi
+            
+            gh release delete "$CUSTOM_TAG" -R ${{ github.repository }} -y --cleanup-tag 2>/dev/null || true
+            git push origin --delete "$CUSTOM_TAG" 2>/dev/null || true
+            git tag -d "$CUSTOM_TAG" 2>/dev/null || true
+            
+            if [ "$M_IDX" -ge 999 ] 2>/dev/null; then
+              FAKE_DATE=$(date +"%Y-%m-%dT%H:%M:%S%z")
+            else
+              DAYS_AGO=$((200 - M_IDX))
+              FAKE_DATE=$(date -d "$DAYS_AGO days ago" +"%Y-%m-%dT%H:%M:%S%z")
+            fi
+            
+            export GIT_AUTHOR_DATE="$FAKE_DATE"
+            export GIT_COMMITTER_DATE="$FAKE_DATE"
+            
+            git rm -rf --cached .github/workflows 2>/dev/null || true
+            NEW_TREE=$(git write-tree)
+            NEW_COMMIT=$(git commit-tree $NEW_TREE -m "Release $CUSTOM_TAG")
+            git reset HEAD .github/workflows 2>/dev/null || true
+            
+            git tag -a "$CUSTOM_TAG" $NEW_COMMIT -m "$CUSTOM_TITLE"
+            git push origin "$CUSTOM_TAG"
+            
+            sleep 5
+            
+            RAW_VAL=${VER_RAW:-0}
+            gh release create "$CUSTOM_TAG" "${ASSETS[@]}" \
+              --title "$CUSTOM_TITLE (v$RAW_VAL)" \
+              --notes-file release_notes.md
+              
+            echo "✅ Successfully released $CUSTOM_TAG (Timestamp locked: $FAKE_DATE)."
+            
+            rm -f *.zip *.nsp script_output.log release_notes.md changelog_body.txt
+          done
