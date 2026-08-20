@@ -1,4 +1,4 @@
-name: 🎮 Firmware Auto Downloader
+name: Firmware Auto Downloader
 
 on:
   schedule:
@@ -6,17 +6,17 @@ on:
   workflow_dispatch:
     inputs:
       download_all_missing:
-        description: 'Scanner et télécharger TOUT l`historique manquant (Si décoché, télécharge UNIQUEMENT la dernière version)'
+        description: 'Scan and download ALL missing history (If unchecked, downloads ONLY the latest version)'
         required: false
         type: boolean
         default: false
       extract_data:
-        description: 'Extraire les données du système (romfs, exefs) dans un ZIP séparé'
+        description: 'Extract system data (romfs, exefs) into a separate ZIP'
         required: false
         type: boolean
         default: true
       build_nsp:
-        description: 'Build NSP file ?'
+        description: 'Build NSP file?'
         required: false
         type: boolean
         default: false
@@ -26,7 +26,7 @@ on:
         type: string
         default: ''
       reset_and_reorder:
-        description: '⚠️ DELETE ALL existing releases and recreate them in perfect chronological order?'
+        description: 'DELETE ALL existing releases and recreate them in perfect chronological order?'
         required: false
         type: boolean
         default: false
@@ -45,7 +45,7 @@ jobs:
       new_version: ${{ steps.history_check.outputs.new_version }}
       queue_json: ${{ steps.history_check.outputs.queue_json }}
     steps:
-      - name: 🔍 Scan Release History & Build Queue
+      - name: Scan Release History & Build Queue
         id: history_check
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -161,7 +161,7 @@ jobs:
           COUNT=0
 
           if [ "$RESET_MODE" = "true" ]; then
-            echo "⚠️ WARNING: Reset mode enabled. Purging existing releases..."
+            echo "WARNING: Reset mode enabled. Purging existing releases..."
             MASTER_INDEX=0
             for item in "${VERSIONS[@]}"; do
               MASTER_INDEX=$((MASTER_INDEX+1))
@@ -282,7 +282,7 @@ jobs:
           set -e
 
   download_and_release:
-    name: ⬇️ Execute Download Queue
+    name: Execute Download Queue
     needs: check_update
     if: needs.check_update.outputs.new_version == 'true'
     runs-on: ubuntu-latest
@@ -291,22 +291,22 @@ jobs:
       contents: write
 
     steps:
-      - name: ⬇️ Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: main
 
-      - name: 🐍 Setup Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
-      - name: ⚙️ Install required modules
+      - name: Install required modules
         run: |
           sudo apt-get install -y jq unzip
           pip install requests anynet cryptography tqdm beautifulsoup4
 
-      - name: ⬇️ Setup hactool-linux
+      - name: Setup hactool-linux
         run: |
           if [ -f "hactool-linux" ]; then
             cp hactool-linux hactool
@@ -316,7 +316,7 @@ jobs:
             exit 1
           fi
 
-      - name: 💻 Process Queue Sequentially
+      - name: Process Queue Sequentially
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -338,7 +338,7 @@ jobs:
             M_IDX=$(echo "$item" | jq -r '.m_idx // "999"')
             
             echo "========================================"
-            echo "🚀 PROCESSING: $CUSTOM_TITLE ($CUSTOM_TAG) [$CURRENT_INDEX/$TOTAL_ITEMS]"
+            echo "PROCESSING: $CUSTOM_TITLE ($CUSTOM_TAG) [$CURRENT_INDEX/$TOTAL_ITEMS]"
             echo "========================================"
             
             if [ "$VERSION" = "LATEST" ]; then
@@ -352,18 +352,17 @@ jobs:
             export FORCE_BUILD_NSP="${{ env.BUILD_NSP }}"
             export EXTRACT_DATA="${{ env.EXTRACT_DATA }}"
             
-            echo "n" | python3 firmware_downloader.py "$PYTHON_ARG" | tee script_output.log
+            python3 firmware_downloader.py "$PYTHON_ARG" --logs | tee script_output.log
             
-            # --- AUTO-UPDATE JSON COMMIT ---
             if [ -f "json_updated.flag" ]; then
-              echo "🚀 Pushing updated Title Database to repository..."
+              echo "Pushing updated Title Database to repository..."
               git add all_titles.json
               git commit -m "Auto-update Title Database (all_titles.json)"
               git push origin HEAD:main || echo "Nothing to push"
               rm -f json_updated.flag
             fi
             
-            VER_RAW=$(grep "Internal version:" script_output.log | sed -E 's/.*Internal version: ([0-9]+).*/\1/' || echo "0")
+            VER_RAW=$(grep "Raw:" script_output.log | head -n 1 | sed -E 's/.*\(Raw: ([0-9]+)\).*/\1/' || echo "0")
             
             sed -n '/Archive created:/,$p' script_output.log > changelog_body.txt
             
@@ -395,7 +394,7 @@ jobs:
             if [ -f "$CORRECT_ZIP_NAME" ]; then ASSETS+=("$CORRECT_ZIP_NAME"); fi
             if [ -f "$CORRECT_NSP_NAME" ]; then ASSETS+=("$CORRECT_NSP_NAME"); fi
             
-            EXTRACT_ZIP=$(ls Extracted_Firmware_*.zip 2>/dev/null | head -n 1)
+            EXTRACT_ZIP=$(ls Extracted_*.zip 2>/dev/null | head -n 1)
             CORRECT_EXTRACT_ZIP="Extracted.Firmware.${CUSTOM_TAG}.zip"
             if [ -n "$EXTRACT_ZIP" ] && [ -f "$EXTRACT_ZIP" ]; then 
               mv "$EXTRACT_ZIP" "$CORRECT_EXTRACT_ZIP"
@@ -408,7 +407,7 @@ jobs:
               DISPLAY_DATE=$(echo "$FW_DATE" | cut -d' ' -f1)
             fi
             
-            echo "📅 **Official Release Date:** $DISPLAY_DATE" > release_notes.md
+            echo "Official Release Date: $DISPLAY_DATE" > release_notes.md
             echo "" >> release_notes.md
             echo "Automatic download of the official Nintendo Switch firmware version $CUSTOM_TAG." >> release_notes.md
             echo "" >> release_notes.md
@@ -454,7 +453,7 @@ jobs:
               --title "$CUSTOM_TITLE (v$RAW_VAL)" \
               --notes-file release_notes.md
               
-            echo "✅ Successfully released $CUSTOM_TAG (Timestamp locked: $FAKE_DATE)."
+            echo "Successfully released $CUSTOM_TAG (Timestamp locked: $FAKE_DATE)."
             
             rm -f *.zip *.nsp script_output.log release_notes.md changelog_body.txt
           done
