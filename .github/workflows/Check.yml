@@ -1,50 +1,50 @@
-name: 🛠️ Firmware Inspector & Fixer
+name: Firmware Inspector & Fixer
 
 on:
   workflow_dispatch:
     inputs:
       target_tag:
-        description: 'Tag à vérifier (ex: 1.0.0-pre). Tape ALL pour tout vérifier.'
+        description: 'Tag a verifier (ex: 1.0.0-pre). Tape ALL pour tout verifier.'
         required: true
         type: string
         default: 'ALL'
       local_only:
-        description: 'Vérification 100% locale ? (Ne tente aucun téléchargement Nintendo)'
+        description: 'Verification 100% locale ? (Ne tente aucun telechargement Nintendo)'
         required: false
         type: boolean
         default: false
       check_missing_assets:
-        description: '🔍 Vérifier et uploader automatiquement les ZIPs manquants sur les releases ?'
+        description: 'Verifier et uploader automatiquement les ZIPs manquants sur les releases ?'
         required: false
         type: boolean
         default: true
       build_nsp:
-        description: 'Reconstruire le NSP ? (Optionnel. Si décoché, conservera le NSP existant s`il y en a un)'
+        description: 'Reconstruire le NSP ? (Optionnel)'
         required: false
         type: boolean
         default: false
       extract_zip:
-        description: 'Extraire les données du système depuis le ZIP (romfs, exefs) ?'
+        description: 'Extraire les donnees du systeme depuis le ZIP (romfs, exefs) ?'
         required: false
         type: boolean
         default: true
       extract_nsp:
-        description: 'Extraire les données du système depuis le NSP ?'
+        description: 'Extraire les donnees du systeme depuis le NSP ?'
         required: false
         type: boolean
         default: false
 
 jobs:
   prepare_matrix:
-    name: 🔍 Scan & Generate Parallel Matrix
+    name: Scan & Generate Parallel Matrix
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - name: ⬇️ Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 📊 Build JSON Array
+      - name: Build JSON Array
         id: set-matrix
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -66,7 +66,7 @@ jobs:
           echo "matrix=$TAGS" >> "$GITHUB_OUTPUT"
 
   verify_and_fix:
-    name: 🛠️ Fix -> ${{ matrix.tag }}
+    name: Fix -> ${{ matrix.tag }}
     needs: prepare_matrix
     runs-on: ubuntu-latest
     timeout-minutes: 360
@@ -78,27 +78,20 @@ jobs:
       matrix:
         tag: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
     steps:
-      - name: ⬇️ Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 🐍 Setup Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+          cache: 'pip'
 
-      - name: 💾 Cache pip packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-firmware-deps
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: ⚙️ Install required modules
+      - name: Install required modules
         run: |
-          pip install requests anynet cryptography tqdm beautifulsoup4
+          pip install requests cryptography tqdm
 
-      - name: ⬇️ Setup hactool-linux
+      - name: Setup hactool-linux
         run: |
           if [ -f "hactool-linux" ]; then
             cp hactool-linux hactool
@@ -108,7 +101,7 @@ jobs:
             exit 1
           fi
 
-      - name: 🕵️ Execute Verification & Asset Check
+      - name: Execute Verification & Asset Check
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LOCAL_ONLY: ${{ inputs.local_only }}
@@ -221,7 +214,7 @@ jobs:
           )
 
           echo "========================================"
-          echo "🔍 INSPECTING RELEASE: $TAG"
+          echo "INSPECTING RELEASE: $TAG"
           echo "========================================"
 
           RAW=""
@@ -247,26 +240,25 @@ jobs:
           CORRECT_NSP_NAME="Firmware.${TAG}.nsp"
           CORRECT_EXTRACT_ZIP="Extracted.Firmware.${TAG}.zip"
           
-          # --- OPTION DE VÉRIFICATION DES ASSETS MANQUANTS ---
           if [ "$CHECK_ASSETS" = "true" ]; then
-            echo "🔍 Checking if required assets exist on GitHub release $TAG..."
+            echo "Checking if required assets exist on GitHub release $TAG..."
             EXISTING_ASSETS=$(gh release view "$TAG" --json assets --jq '.assets[].name')
             
             ZIP_EXISTS=false
             EXTRACT_EXISTS=false
             
-            if echo "$EXISTING_ASSETS" \vert{} grep -qxF "$CORRECT_ZIP_NAME"; then ZIP_EXISTS=true; fi
-            if echo "$EXISTING_ASSETS" \vert{} grep -qxF "$CORRECT_EXTRACT_ZIP"; then EXTRACT_EXISTS=true; fi
+            if echo "$EXISTING_ASSETS" | grep -qxF "$CORRECT_ZIP_NAME"; then ZIP_EXISTS=true; fi
+            if echo "$EXISTING_ASSETS" | grep -qxF "$CORRECT_EXTRACT_ZIP"; then EXTRACT_EXISTS=true; fi
             
             if [ "$ZIP_EXISTS" = "true" ] && [ "$EXTRACT_EXISTS" = "true" ]; then
-              echo "✅ All required assets are already present on release $TAG. Skipping processing."
+              echo "All required assets are already present on release $TAG. Skipping processing."
               exit 0
             else
-              echo "⚠️ Missing assets detected on release $TAG (ZIP: $ZIP_EXISTS, Extracted:$EXTRACT_EXISTS). Forcing generation..."
+              echo "Missing assets detected on release $TAG (ZIP: $ZIP_EXISTS, Extracted: $EXTRACT_EXISTS). Forcing generation..."
             fi
           fi
           
-          echo "⬇️ Downloading existing ZIP and NSP for $TAG..."
+          echo "Downloading existing ZIP and NSP for $TAG..."
           rm -f *.zip *.nsp
           gh release download "$TAG" -p "*.zip" --clobber || true
           gh release download "$TAG" -p "*.nsp" --clobber || true
@@ -289,7 +281,7 @@ jobs:
           fi
           
           if [ -n "$DOWNLOADED_ZIP" ]; then
-            echo "📦 Extracting $DOWNLOADED_ZIP strictly to$FOLDER_NAME..."
+            echo "Extracting $DOWNLOADED_ZIP strictly to $FOLDER_NAME..."
             mkdir -p temp_extract
             unzip -q "$DOWNLOADED_ZIP" -d temp_extract
             
@@ -297,10 +289,10 @@ jobs:
             find temp_extract -type f -name "*.nca" -exec mv {} "$FOLDER_NAME"/ \; 2>/dev/null || true
             rm -rf temp_extract
           else
-            echo "⚠️ No ZIP found on GitHub."
+            echo "No ZIP found on GitHub."
           fi
 
-          echo "⚙️ Running firmware_downloader.py..."
+          echo "Running firmware_downloader.py..."
           python3 firmware_downloader.py "$PYTHON_ARG" --logs | tee script_output.log
           
           sed -n '/Archive created:/,$p' script_output.log > changelog_body.txt
@@ -324,7 +316,7 @@ jobs:
             echo "</details>" >> changelog_body.txt
           fi
           
-          echo "📅 **Official Release Date:** $OFFICIAL_DATE" > new_notes.md
+          echo "Official Release Date: $OFFICIAL_DATE" > new_notes.md
           echo "" >> new_notes.md
           echo "Download of Nintendo Switch firmware version $TAG." >> new_notes.md
           echo "" >> new_notes.md
@@ -342,12 +334,11 @@ jobs:
           NEW_ZIP="Firmware ${PYTHON_ARG}.zip"
           NEW_NSP="Firmware ${PYTHON_ARG}.nsp"
           
-          # === GESTION DU ZIP ===
           if [ "$LOCAL_ONLY" == "true" ]; then
-            echo "✅ Local Mode: Original ZIP left completely untouched on GitHub."
+            echo "Local Mode: Original ZIP left completely untouched on GitHub."
           else
             if grep -Eq "Downloading .*\.nca" script_output.log; then
-              echo "🚨 Missing NCAs were downloaded by the script! Updating ZIP on GitHub..."
+              echo "Missing NCAs were downloaded by the script! Updating ZIP on GitHub..."
               mv "$NEW_ZIP" "$CORRECT_ZIP_NAME"
               gh release upload "$TAG" "$CORRECT_ZIP_NAME" --clobber
               
@@ -355,9 +346,9 @@ jobs:
                 gh release delete-asset "$TAG" "$DOWNLOADED_ZIP" -y || true
               fi
             else
-              echo "✅ Keeping original ZIP (Complete mode)."
+              echo "Keeping original ZIP (Complete mode)."
               if [ -n "$DOWNLOADED_ZIP" ] && [ "$DOWNLOADED_ZIP" != "$CORRECT_ZIP_NAME" ]; then
-                echo "🔄 Fixing ZIP filename on GitHub to include the dot ($CORRECT_ZIP_NAME)..."
+                echo "Fixing ZIP filename on GitHub to include the dot ($CORRECT_ZIP_NAME)..."
                 mv "$DOWNLOADED_ZIP" "$CORRECT_ZIP_NAME"
                 gh release upload "$TAG" "$CORRECT_ZIP_NAME" --clobber
                 gh release delete-asset "$TAG" "$DOWNLOADED_ZIP" -y || true
@@ -365,10 +356,9 @@ jobs:
             fi
           fi
 
-          # === GESTION DU NSP ===
           if [ "$FORCE_BUILD_NSP" == "true" ] && [ -f "$NEW_NSP" ]; then
             if grep -Eq "Downloading .*\.nca" script_output.log && [ "$LOCAL_ONLY" != "true" ]; then
-              echo "🚨 NCA downloaded: Updating NSP on GitHub..."
+              echo "NCA downloaded: Updating NSP on GitHub..."
               mv "$NEW_NSP" "$CORRECT_NSP_NAME"
               gh release upload "$TAG" "$CORRECT_NSP_NAME" --clobber
               if [ -n "$DOWNLOADED_NSP" ] && [ "$DOWNLOADED_NSP" != "$CORRECT_NSP_NAME" ]; then
@@ -376,30 +366,28 @@ jobs:
               fi
             else
               if [ -n "$DOWNLOADED_NSP" ] && [ "$DOWNLOADED_NSP" != "$CORRECT_NSP_NAME" ]; then
-                echo "🔄 Fixing NSP filename on GitHub to include the dot..."
+                echo "Fixing NSP filename on GitHub to include the dot..."
                 mv "$DOWNLOADED_NSP" "$CORRECT_NSP_NAME"
                 gh release upload "$TAG" "$CORRECT_NSP_NAME" --clobber
                 gh release delete-asset "$TAG" "$DOWNLOADED_NSP" -y || true
               elif [ -z "$DOWNLOADED_NSP" ]; then
-                echo "⬆️ Uploading forced NSP..."
+                echo "Uploading forced NSP..."
                 mv "$NEW_NSP" "$CORRECT_NSP_NAME"
                 gh release upload "$TAG" "$CORRECT_NSP_NAME" --clobber
               fi
             fi
           else
             if [ -n "$DOWNLOADED_NSP" ] && [ "$DOWNLOADED_NSP" != "$CORRECT_NSP_NAME" ]; then
-              echo "🔄 Fixing existing NSP filename on GitHub to include the dot..."
+              echo "Fixing existing NSP filename on GitHub to include the dot..."
               mv "$DOWNLOADED_NSP" "$CORRECT_NSP_NAME"
               gh release upload "$TAG" "$CORRECT_NSP_NAME" --clobber
               gh release delete-asset "$TAG" "$DOWNLOADED_NSP" -y || true
             fi
           fi
 
-          # === GESTION DES EXTRACTIONS ===
           EXTRACT_ZIP_FILE=$(ls Extracted_Firmware*.zip 2>/dev/null | head -n 1)
           if [ -n "$EXTRACT_ZIP_FILE" ] && [ -f "$EXTRACT_ZIP_FILE" ]; then 
-            CORRECT_EXTRACT_ZIP="Extracted.Firmware.${TAG}.zip"
-            echo "📦 Uploading Extracted ZIP Data..."
+            echo "Uploading Extracted ZIP Data..."
             mv "$EXTRACT_ZIP_FILE" "$CORRECT_EXTRACT_ZIP"
             gh release upload "$TAG" "$CORRECT_EXTRACT_ZIP" --clobber
           fi
@@ -407,17 +395,16 @@ jobs:
           EXTRACT_NSP_FILE=$(ls Extracted_NSP_Firmware*.zip 2>/dev/null | head -n 1)
           if [ -n "$EXTRACT_NSP_FILE" ] && [ -f "$EXTRACT_NSP_FILE" ]; then 
             CORRECT_EXTRACT_NSP="Extracted.NSP.Firmware.${TAG}.zip"
-            echo "📦 Uploading Extracted NSP Data..."
+            echo "Uploading Extracted NSP Data..."
             mv "$EXTRACT_NSP_FILE" "$CORRECT_EXTRACT_NSP"
             gh release upload "$TAG" "$CORRECT_EXTRACT_NSP" --clobber
           fi
 
-          echo "📝 Updating release text..."
+          echo "Updating release text..."
           gh release edit "$TAG" --notes-file new_notes.md
 
-          # === 🔒 LOGIQUE PARALLÈLE ULTRA-SÉCURISÉE POUR ALL_TITLES.JSON ===
           if [ -f "json_updated.flag" ]; then
-            echo "🚀 Nouveaux ID trouvés par ce runner ! Tentative de synchronisation sécurisée..."
+            echo "Nouveaux ID trouves par ce runner ! Tentative de synchronisation securisee..."
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             
@@ -428,10 +415,10 @@ jobs:
               git pull origin main --rebase
               
               if git push origin HEAD:main; then
-                echo "✅ all_titles.json fusionné et mis à jour avec succès !"
+                echo "all_titles.json fusionne et mis a jour avec succes !"
                 break
               else
-                echo "⚠️ Collision de push détectée (un autre runner a validé son JSON avant). Réessai dans un instant..."
+                echo "Collision de push detectee. Reesessai dans un instant..."
                 sleep $((2 + RANDOM % 6))
               fi
             done
@@ -439,4 +426,4 @@ jobs:
           fi
           
           rm -rf "$FOLDER_NAME" *.zip *.nsp script_output.log new_notes.md changelog_body.txt
-          echo "⏳ Done with $TAG."
+          echo "Done with $TAG."
