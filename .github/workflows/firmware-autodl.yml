@@ -204,7 +204,13 @@ jobs:
           fi
 
           echo "INFO: Scanning repository deployment history..."
-          EXISTING_TAGS=$(gh release list -R ${{ github.repository }} --limit 1000 --json tagName --jq '.[].tagName')
+          EXISTING_TAGS=$(gh release list -R ${{ github.repository }} --limit 1000 --json tagName --jq '.[].tagName' 2> gh_error.log)
+          if [ $? -ne 0 ]; then
+            echo "WARNING: GitHub API is currently unavailable (503 Service Unavailable)."
+            cat gh_error.log
+            echo "new_version=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           if [ "$DOWNLOAD_ALL" = "false" ] || [ -z "$DOWNLOAD_ALL" ]; then
             echo "INFO: Default Mode -> Scanning for the LATEST available version only."
