@@ -440,5 +440,3 @@ jobs:
           
           rm -rf "$FOLDER_NAME" *.zip *.nsp script_output.log new_notes.md changelog_body.txt
           echo "⏳ Done with $TAG."
-
-ok, mais ya t'il un endroit encore ou une modification sera a faire, on sais que les scripts sont OK mais pour que ce soit le meilleur, tout est opti selon toi? Et je veux la vérité sans essayer de me rassurer, c'est pour être le meilleur.
