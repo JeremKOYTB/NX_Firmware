@@ -13,6 +13,11 @@ on:
         required: false
         type: boolean
         default: false
+      check_missing_assets:
+        description: '🔍 Vérifier et uploader automatiquement les ZIPs manquants sur les releases ?'
+        required: false
+        type: boolean
+        default: true
       build_nsp:
         description: 'Reconstruire le NSP ? (Optionnel. Si décoché, conservera le NSP existant s`il y en a un)'
         required: false
@@ -22,7 +27,7 @@ on:
         description: 'Extraire les données du système depuis le ZIP (romfs, exefs) ?'
         required: false
         type: boolean
-        default: false
+        default: true
       extract_nsp:
         description: 'Extraire les données du système depuis le NSP ?'
         required: false
@@ -91,7 +96,6 @@ jobs:
 
       - name: ⚙️ Install required modules
         run: |
-          # jq et unzip sont préinstallés sur ubuntu-latest, on zappe apt-get pour gagner du temps
           pip install requests anynet cryptography tqdm beautifulsoup4
 
       - name: ⬇️ Setup hactool-linux
@@ -104,10 +108,11 @@ jobs:
             exit 1
           fi
 
-      - name: 🕵️ Execute Verification
+      - name: 🕵️ Execute Verification & Asset Check
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LOCAL_ONLY: ${{ inputs.local_only }}
+          CHECK_ASSETS: ${{ inputs.check_missing_assets }}
           EXTRACT_ZIP: ${{ inputs.extract_zip }}
           EXTRACT_NSP: ${{ inputs.extract_nsp }}
           TAG: ${{ matrix.tag }}
@@ -240,6 +245,26 @@ jobs:
           FOLDER_NAME="Firmware ${PYTHON_ARG}"
           CORRECT_ZIP_NAME="Firmware.${TAG}.zip"
           CORRECT_NSP_NAME="Firmware.${TAG}.nsp"
+          CORRECT_EXTRACT_ZIP="Extracted.Firmware.${TAG}.zip"
+          
+          # --- OPTION DE VÉRIFICATION DES ASSETS MANQUANTS ---
+          if [ "$CHECK_ASSETS" = "true" ]; then
+            echo "🔍 Checking if required assets exist on GitHub release $TAG..."
+            EXISTING_ASSETS=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+            
+            ZIP_EXISTS=false
+            EXTRACT_EXISTS=false
+            
+            if echo "$EXISTING_ASSETS" \vert{} grep -qxF "$CORRECT_ZIP_NAME"; then ZIP_EXISTS=true; fi
+            if echo "$EXISTING_ASSETS" \vert{} grep -qxF "$CORRECT_EXTRACT_ZIP"; then EXTRACT_EXISTS=true; fi
+            
+            if [ "$ZIP_EXISTS" = "true" ] && [ "$EXTRACT_EXISTS" = "true" ]; then
+              echo "✅ All required assets are already present on release $TAG. Skipping processing."
+              exit 0
+            else
+              echo "⚠️ Missing assets detected on release $TAG (ZIP: $ZIP_EXISTS, Extracted:$EXTRACT_EXISTS). Forcing generation..."
+            fi
+          fi
           
           echo "⬇️ Downloading existing ZIP and NSP for $TAG..."
           rm -f *.zip *.nsp
@@ -264,7 +289,7 @@ jobs:
           fi
           
           if [ -n "$DOWNLOADED_ZIP" ]; then
-            echo "📦 Extracting $DOWNLOADED_ZIP strictly to $FOLDER_NAME..."
+            echo "📦 Extracting $DOWNLOADED_ZIP strictly to$FOLDER_NAME..."
             mkdir -p temp_extract
             unzip -q "$DOWNLOADED_ZIP" -d temp_extract
             
@@ -276,7 +301,7 @@ jobs:
           fi
 
           echo "⚙️ Running firmware_downloader.py..."
-          echo "n" | python3 firmware_downloader.py "$PYTHON_ARG" | tee script_output.log
+          python3 firmware_downloader.py "$PYTHON_ARG" --logs | tee script_output.log
           
           sed -n '/Archive created:/,$p' script_output.log > changelog_body.txt
           
@@ -373,7 +398,6 @@ jobs:
           # === GESTION DES EXTRACTIONS ===
           EXTRACT_ZIP_FILE=$(ls Extracted_Firmware_*.zip 2>/dev/null | head -n 1)
           if [ -n "$EXTRACT_ZIP_FILE" ] && [ -f "$EXTRACT_ZIP_FILE" ]; then 
-            CORRECT_EXTRACT_ZIP="Extracted.Firmware.${TAG}.zip"
             echo "📦 Uploading Extracted ZIP Data..."
             mv "$EXTRACT_ZIP_FILE" "$CORRECT_EXTRACT_ZIP"
             gh release upload "$TAG" "$CORRECT_EXTRACT_ZIP" --clobber
