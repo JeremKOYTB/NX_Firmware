@@ -375,12 +375,14 @@ jobs:
             CORRECT_ZIP_NAME="Firmware.${CUSTOM_TAG}.zip"
             CORRECT_NSP_NAME="Firmware.${CUSTOM_TAG}.nsp"
             
-            if [ "$FILE_MATCH" != "Firmware ${CUSTOM_TAG}" ]; then
-              if [ -f "${FILE_MATCH}.zip" ]; then mv "${FILE_MATCH}.zip" "$CORRECT_ZIP_NAME"; fi
-              if [ -f "${FILE_MATCH}.nsp" ]; then mv "${FILE_MATCH}.nsp" "$CORRECT_NSP_NAME"; fi
-            else
-              if [ -f "${FILE_MATCH}.zip" ]; then mv "${FILE_MATCH}.zip" "$CORRECT_ZIP_NAME"; fi
-              if [ -f "${FILE_MATCH}.nsp" ]; then mv "${FILE_MATCH}.nsp" "$CORRECT_NSP_NAME"; fi
+            GEN_ZIP=$(ls Firmware*.zip 2>/dev/null | grep -v -i "Extracted" | head -n 1)
+            if [ -n "$GEN_ZIP" ] && [ -f "$GEN_ZIP" ]; then
+              mv "$GEN_ZIP" "$CORRECT_ZIP_NAME"
+            fi
+
+            GEN_NSP=$(ls Firmware*.nsp 2>/dev/null | grep -v -i "Extracted" | head -n 1)
+            if [ -n "$GEN_NSP" ] && [ -f "$GEN_NSP" ]; then
+              mv "$GEN_NSP" "$CORRECT_NSP_NAME"
             fi
             
             sed -i -E "s/Archive created: .*/Archive created: ${CORRECT_ZIP_NAME}/g" changelog_body.txt
