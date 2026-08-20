@@ -343,57 +343,42 @@ jobs:
           echo "" >> new_notes.md
           cat changelog_body.txt >> new_notes.md
           
-          NEW_ZIP="Firmware ${PYTHON_ARG}.zip"
-          NEW_NSP="Firmware ${PYTHON_ARG}.nsp"
-          
-          if [ "$LOCAL_ONLY" == "true" ]; then
-            echo "✅ Local Mode: Original ZIP left completely untouched on GitHub."
-          else
-            if grep -Eq "Downloading .*\.nca" script_output.log; then
-              echo "🚨 Missing NCAs were downloaded by the script! Updating ZIP on GitHub..."
-              mv "$NEW_ZIP" "$CORRECT_ZIP_NAME"
+          # === GESTION DU ZIP ===
+          GEN_ZIP=$(ls Firmware*.zip 2>/dev/null | grep -v -i "Extracted" | head -n 1)
+          if [ -n "$GEN_ZIP" ] && [ -f "$GEN_ZIP" ]; then
+            if [ "$GEN_ZIP" != "$CORRECT_ZIP_NAME" ]; then
+              mv "$GEN_ZIP" "$CORRECT_ZIP_NAME"
+            fi
+            
+            if [ "$LOCAL_ONLY" != "true" ]; then
+              echo "⬆️ Uploading main ZIP asset: $CORRECT_ZIP_NAME..."
               gh release upload "$TAG" "$CORRECT_ZIP_NAME" --clobber
               
               if [ -n "$DOWNLOADED_ZIP" ] && [ "$DOWNLOADED_ZIP" != "$CORRECT_ZIP_NAME" ]; then
                 gh release delete-asset "$TAG" "$DOWNLOADED_ZIP" -y || true
               fi
             else
-              echo "✅ Keeping original ZIP (Complete mode)."
-              if [ -n "$DOWNLOADED_ZIP" ] && [ "$DOWNLOADED_ZIP" != "$CORRECT_ZIP_NAME" ]; then
-                echo "🔄 Fixing ZIP filename on GitHub to include the dot ($CORRECT_ZIP_NAME)..."
-                mv "$DOWNLOADED_ZIP" "$CORRECT_ZIP_NAME"
-                gh release upload "$TAG" "$CORRECT_ZIP_NAME" --clobber
-                gh release delete-asset "$TAG" "$DOWNLOADED_ZIP" -y || true
-              fi
+              echo "✅ Local Mode: Skipping ZIP upload to GitHub."
             fi
           fi
 
-          if [ "$FORCE_BUILD_NSP" == "true" ] && [ -f "$NEW_NSP" ]; then
-            if grep -Eq "Downloading .*\.nca" script_output.log && [ "$LOCAL_ONLY" != "true" ]; then
-              echo "🚨 NCA downloaded: Updating NSP on GitHub..."
-              mv "$NEW_NSP" "$CORRECT_NSP_NAME"
+          # === GESTION DU NSP ===
+          GEN_NSP=$(ls Firmware*.nsp 2>/dev/null | grep -v -i "Extracted" | head -n 1)
+          if [ -n "$GEN_NSP" ] && [ -f "$GEN_NSP" ]; then
+            if [ "$GEN_NSP" != "$CORRECT_NSP_NAME" ]; then
+              mv "$GEN_NSP" "$CORRECT_NSP_NAME"
+            fi
+            
+            if [ "$LOCAL_ONLY" != "true" ] && [ "${{ inputs.build_nsp }}" == "true" ]; then
+              echo "⬆️ Uploading NSP asset: $CORRECT_NSP_NAME..."
               gh release upload "$TAG" "$CORRECT_NSP_NAME" --clobber
+              
               if [ -n "$DOWNLOADED_NSP" ] && [ "$DOWNLOADED_NSP" != "$CORRECT_NSP_NAME" ]; then
                 gh release delete-asset "$TAG" "$DOWNLOADED_NSP" -y || true
               fi
             else
-              if [ -n "$DOWNLOADED_NSP" ] && [ "$DOWNLOADED_NSP" != "$CORRECT_NSP_NAME" ]; then
-                echo "🔄 Fixing NSP filename on GitHub to include the dot..."
-                mv "$DOWNLOADED_NSP" "$CORRECT_NSP_NAME"
-                gh release upload "$TAG" "$CORRECT_NSP_NAME" --clobber
-                gh release delete-asset "$TAG" "$DOWNLOADED_NSP" -y || true
-              elif [ -z "$DOWNLOADED_NSP" ]; then
-                echo "⬆️ Uploading forced NSP..."
-                mv "$NEW_NSP" "$CORRECT_NSP_NAME"
-                gh release upload "$TAG" "$CORRECT_NSP_NAME" --clobber
-              fi
-            fi
-          else
-            if [ -n "$DOWNLOADED_NSP" ] && [ "$DOWNLOADED_NSP" != "$CORRECT_NSP_NAME" ]; then
-              echo "🔄 Fixing existing NSP filename on GitHub to include the dot..."
-              mv "$DOWNLOADED_NSP" "$CORRECT_NSP_NAME"
-              gh release upload "$TAG" "$CORRECT_NSP_NAME" --clobber
-              gh release delete-asset "$TAG" "$DOWNLOADED_NSP" -y || true
+              echo "ℹ️ NSP built locally but not uploaded (build_nsp is false or local_only is true)."
+              rm -f "$CORRECT_NSP_NAME"
             fi
           fi
 
