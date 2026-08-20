@@ -243,17 +243,30 @@ jobs:
             echo "🔍 Checking if required assets exist on GitHub release $TAG..."
             EXISTING_ASSETS=$(gh release view "$TAG" --json assets --jq '.assets[].name')
             
-            ZIP_EXISTS=false
-            EXTRACT_EXISTS=false
+            ZIP_EXISTS=true
+            EXTRACT_ZIP_EXISTS=true
+            EXTRACT_NSP_EXISTS=true
             
-            if echo "$EXISTING_ASSETS" | grep -qxF "$CORRECT_ZIP_NAME"; then ZIP_EXISTS=true; fi
-            if echo "$EXISTING_ASSETS" | grep -qxF "$CORRECT_EXTRACT_ZIP"; then EXTRACT_EXISTS=true; fi
+            if ! echo "$EXISTING_ASSETS" | grep -qxF "$CORRECT_ZIP_NAME"; then ZIP_EXISTS=false; fi
             
-            if [ "$ZIP_EXISTS" = "true" ] && [ "$EXTRACT_EXISTS" = "true" ]; then
-              echo "✅ All required assets are already present on release $TAG. Skipping processing."
+            if [ "$EXTRACT_ZIP" = "true" ]; then
+              if ! echo "$EXISTING_ASSETS" | grep -qxF "$CORRECT_EXTRACT_ZIP"; then EXTRACT_ZIP_EXISTS=false; fi
+            else
+              EXTRACT_ZIP_EXISTS=true
+            fi
+            
+            if [ "$EXTRACT_NSP" = "true" ]; then
+              CORRECT_EXTRACT_NSP="Extracted.NSP.Firmware.${TAG}.zip"
+              if ! echo "$EXISTING_ASSETS" | grep -qxF "$CORRECT_EXTRACT_NSP"; then EXTRACT_NSP_EXISTS=false; fi
+            else
+              EXTRACT_NSP_EXISTS=true
+            fi
+            
+            if [ "$ZIP_EXISTS" = "true" ] && [ "$EXTRACT_ZIP_EXISTS" = "true" ] && [ "$EXTRACT_NSP_EXISTS" = "true" ]; then
+              echo "✅ All required assets for the current configuration are already present on release $TAG. Skipping processing."
               exit 0
             else
-              echo "⚠️ Missing assets detected on release $TAG (ZIP: $ZIP_EXISTS, Extracted: $EXTRACT_EXISTS). Forcing generation..."
+              echo "⚠️ Missing required assets detected on release $TAG. Forcing generation..."
             fi
           fi
           
