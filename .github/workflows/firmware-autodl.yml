@@ -1,4 +1,4 @@
-name: Firmware Auto Downloader
+name: 🎮 Firmware Auto Downloader
 
 on:
   schedule:
@@ -37,6 +37,7 @@ env:
 
 jobs:
   check_update:
+    name: 🔍 Check Updates & Build Queue
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -168,7 +169,7 @@ jobs:
               IFS='|' read -r raw tag title fw_date <<< "$item"
               gh release delete "$tag" -R ${{ github.repository }} -y --cleanup-tag 2>/dev/null || true
               if [ $COUNT -gt 0 ]; then MISSING_JSON+=", "; fi
-              MISSING_JSON+="{\"raw\":\"$raw\", \"tag\":\"$tag\", \"title\":\"$title\", \"fw_date\":\"$fw_date\", \"m_idx\":\"$MASTER_INDEX\"}"
+              MISSING_JSON+="{\"raw\":\"$raw\", \"tag\":\"$tag\", \"title\":\"$title\", \"fw_date\":\"$fw_date\", \"m_idx\":\"$MASTER_INDEX\", \"report_url\":\"\"}"
               COUNT=$((COUNT+1))
             done
             MISSING_JSON+="]"
@@ -183,7 +184,8 @@ jobs:
             MATCH_TAG=$(echo "$MANUAL_VERSION" | cut -d. -f1-3)
             MATCH_TITLE="Firmware $MATCH_TAG"
             MATCH_DATE="LATEST"
-            
+            MATCH_IDX="999"
+
             MASTER_INDEX=0
             for item in "${VERSIONS[@]}"; do
               MASTER_INDEX=$((MASTER_INDEX+1))
@@ -197,7 +199,7 @@ jobs:
                 break
               fi
             done
-            MISSING_JSON+="{\"raw\":\"$MATCH_RAW\", \"tag\":\"$MATCH_TAG\", \"title\":\"$MATCH_TITLE\", \"fw_date\":\"$MATCH_DATE\", \"m_idx\":\"$MATCH_IDX\"}]"
+            MISSING_JSON+="{\"raw\":\"$MATCH_RAW\", \"tag\":\"$MATCH_TAG\", \"title\":\"$MATCH_TITLE\", \"fw_date\":\"$MATCH_DATE\", \"m_idx\":\"$MATCH_IDX\", \"report_url\":\"\"}]"
             echo "new_version=true" >> "$GITHUB_OUTPUT"
             echo "queue_json=$MISSING_JSON" >> "$GITHUB_OUTPUT"
             exit 0
@@ -206,60 +208,97 @@ jobs:
           echo "INFO: Scanning repository deployment history..."
           EXISTING_TAGS=$(gh release list -R ${{ github.repository }} --limit 1000 --json tagName --jq '.[].tagName' 2> gh_error.log)
           if [ $? -ne 0 ]; then
-            echo "WARNING: GitHub API is currently unavailable (503 Service Unavailable)."
+            echo "WARNING: GitHub API is currently unavailable."
             cat gh_error.log
             echo "new_version=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           if [ "$DOWNLOAD_ALL" = "false" ] || [ -z "$DOWNLOAD_ALL" ]; then
-            echo "INFO: Default Mode -> Scanning for the LATEST available version only."
-            
-            RSS=$(curl -sL --retry 3 --fail https://yls8.mtheall.com/ninupdates/feed.php || echo "")
-            LATEST_FOUND="false"
-            
-            if [ -n "$RSS" ]; then
-              LATEST_VERSION=$(echo "$RSS" | tr -d '\n' | sed 's/<item>/\n<item>/g' | grep 'sys=hac' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -n 1)
-              if [ -n "$LATEST_VERSION" ]; then
-                MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
-                if [ "$MAJOR" -ge 21 ]; then
-                  if ! echo "$EXISTING_TAGS" | grep -qxF "$LATEST_VERSION"; then
-                    echo "LIVE UPDATE FOUND via RSS: Version $LATEST_VERSION"
-                    ITEM_BLOCK=$(echo "$RSS" | tr -d '\n' | sed 's/<item>/\n<item>/g' | grep 'sys=hac' | grep -F "$LATEST_VERSION" | head -n 1)
-                    PUB_DATE_RAW=$(echo "$ITEM_BLOCK" | grep -oP '(?<=<pubDate>).*?(?=</pubDate>)' || echo "")
-                    
-                    RSS_DATE=""
-                    if [ -n "$PUB_DATE_RAW" ]; then
-                      RSS_DATE=$(date -d "$PUB_DATE_RAW" +"%Y-%m-%d" 2>/dev/null || echo "")
-                    fi
-                    if [ -z "$RSS_DATE" ]; then RSS_DATE=$(date +"%Y-%m-%d"); fi
+            echo "INFO: Default Mode -> Scanning for the LATEST available version via NinUpdates report & RSS..."
 
-                    MISSING_JSON+="{\"raw\":\"LATEST\", \"tag\":\"$LATEST_VERSION\", \"title\":\"Firmware $LATEST_VERSION\", \"fw_date\":\"$RSS_DATE\", \"m_idx\":\"999\"}]"
-                    echo "new_version=true" >> "$GITHUB_OUTPUT"
-                    echo "queue_json=$MISSING_JSON" >> "$GITHUB_OUTPUT"
-                    exit 0
-                  else
-                    LATEST_FOUND="true"
-                    echo "INFO: Latest RSS version ($LATEST_VERSION) is already deployed."
+            RSS=$(curl -sSL --fail "https://yls8.mtheall.com/ninupdates/feed.php" || echo "")
+            LATEST_FOUND="false"
+
+            if [ -n "$RSS" ]; then
+              HAC_ITEMS=$(printf '%s' "$RSS" \
+                | tr -d '\n' \
+                | sed 's/<item>/\n<item>/g' \
+                | grep 'sys=hac' || echo "")
+
+              if [ -n "$HAC_ITEMS" ]; then
+                LATEST_REPORT_DATE=$(printf '%s\n' "$HAC_ITEMS" \
+                  | grep -oE 'date=[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}' \
+                  | cut -d= -f2 \
+                  | sort \
+                  | tail -n 1 || echo "")
+
+                if [ -n "$LATEST_REPORT_DATE" ]; then
+                  echo "INFO: Latest HAC report timestamp found: $LATEST_REPORT_DATE"
+                  REPORT_URL="https://yls8.mtheall.com/ninupdates/reports.php?date=${LATEST_REPORT_DATE}&sys=hac"
+                  REPORT=$(curl -sSL --fail "$REPORT_URL" || echo "")
+
+                  LATEST_VERSION=""
+                  if [ -n "$REPORT" ]; then
+                    VERSION_CANDIDATES=$(printf '%s' "$REPORT" \
+                      | sed 's/<[^>]*>/ /g' \
+                      | grep -oiE '.{0,100}(systemversion|system version|firmware|system update).{0,100}' \
+                      | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' \
+                      | sort -Vu || echo "")
+
+                    if [ -n "$VERSION_CANDIDATES" ]; then
+                      LATEST_VERSION=$(printf '%s\n' "$VERSION_CANDIDATES" | sort -V | tail -n 1)
+                    fi
+                  fi
+
+                  # Fallback conditionnel manuel pour les rapports spécifiques
+                  if [ -z "$LATEST_VERSION" ]; then
+                    case "$LATEST_REPORT_DATE" in
+                      "2026-09-10_05-05-06")
+                        LATEST_VERSION="23.0.0"
+                        ;;
+                    esac
+                  fi
+
+                  if [ -n "$LATEST_VERSION" ]; then
+                    MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
+                    if [[ "$MAJOR" =~ ^[0-9]+$ ]] && [ "$MAJOR" -ge 21 ]; then
+                      if ! echo "$EXISTING_TAGS" | grep -qxF "$LATEST_VERSION"; then
+                        echo "LIVE UPDATE FOUND via NinUpdates Report: Version $LATEST_VERSION"
+                        FW_DATE_CLEAN=$(echo "$LATEST_REPORT_DATE" | cut -d'_' -f1)
+                        if [ -z "$FW_DATE_CLEAN" ]; then FW_DATE_CLEAN=$(date +"%Y-%m-%d"); fi
+
+                        MISSING_JSON+="{\"raw\":\"LATEST\", \"tag\":\"$LATEST_VERSION\", \"title\":\"Firmware $LATEST_VERSION\", \"fw_date\":\"$FW_DATE_CLEAN\", \"m_idx\":\"999\", \"report_url\":\"$REPORT_URL\"}]"
+                        echo "new_version=true" >> "$GITHUB_OUTPUT"
+                        echo "queue_json=$MISSING_JSON" >> "$GITHUB_OUTPUT"
+                        exit 0
+                      else
+                        LATEST_FOUND="true"
+                        echo "INFO: Latest NinUpdates version ($LATEST_VERSION) is already deployed."
+                      fi
+                    else
+                      echo "INFO: NinUpdates version ($LATEST_VERSION) ignored (Major < 21)."
+                    fi
                   fi
                 fi
               fi
             fi
-            
+
+            # Repli sur la dernière version de la liste codée en dur si non trouvée via NinUpdates
             if [ "$LATEST_FOUND" = "false" ]; then
               LAST_INDEX=$((${#VERSIONS[@]}-1))
               LAST_ITEM="${VERSIONS[$LAST_INDEX]}"
               IFS='|' read -r raw tag title fw_date <<< "$LAST_ITEM"
-              
+
               if ! echo "$EXISTING_TAGS" | grep -qxF "$tag"; then
-                echo "MISSING LATEST FROM LIST: $tag"
-                MISSING_JSON+="{\"raw\":\"$raw\", \"tag\":\"$tag\", \"title\":\"$title\", \"fw_date\":\"$fw_date\", \"m_idx\":\"$LAST_INDEX\"}]"
+                echo "MISSING LATEST FROM STATIC LIST: $tag"
+                MISSING_JSON+="{\"raw\":\"$raw\", \"tag\":\"$tag\", \"title\":\"$title\", \"fw_date\":\"$fw_date\", \"m_idx\":\"$LAST_INDEX\", \"report_url\":\"\"}]"
                 echo "new_version=true" >> "$GITHUB_OUTPUT"
                 echo "queue_json=$MISSING_JSON" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
             fi
-            
+
             echo "INFO: Repository is completely up to date with the latest version."
             echo "new_version=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -272,7 +311,7 @@ jobs:
             IFS='|' read -r raw tag title fw_date <<< "$item"
             if ! echo "$EXISTING_TAGS" | grep -qxF "$tag"; then
               if [ $COUNT -gt 0 ]; then MISSING_JSON+=", "; fi
-              MISSING_JSON+="{\"raw\":\"$raw\", \"tag\":\"$tag\", \"title\":\"$title\", \"fw_date\":\"$fw_date\", \"m_idx\":\"$MASTER_INDEX\"}"
+              MISSING_JSON+="{\"raw\":\"$raw\", \"tag\":\"$tag\", \"title\":\"$title\", \"fw_date\":\"$fw_date\", \"m_idx\":\"$MASTER_INDEX\", \"report_url\":\"\"}"
               COUNT=$((COUNT+1))
             fi
           done
@@ -288,7 +327,7 @@ jobs:
           set -e
 
   download_and_release:
-    name: Execute Download Queue
+    name: 📦 Execute Download Queue
     needs: check_update
     if: needs.check_update.outputs.new_version == 'true'
     runs-on: ubuntu-latest
@@ -297,22 +336,25 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout code
+      - name: ⬇️ Checkout code
         uses: actions/checkout@v4
         with:
           ref: main
+          fetch-depth: 0
 
-      - name: Setup Python
+      - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
-      - name: Install required modules
+      - name: ⚙️ Install required modules
         run: |
-          sudo apt-get install -y jq unzip
+          sudo apt-get update && sudo apt-get install -y jq unzip
+          python -m pip install --upgrade pip
           pip install requests anynet cryptography tqdm beautifulsoup4
 
-      - name: Setup hactool-linux
+      - name: ⬇️ Setup hactool-linux
+        shell: bash
         run: |
           if [ -f "hactool-linux" ]; then
             cp hactool-linux hactool
@@ -322,44 +364,44 @@ jobs:
             exit 1
           fi
 
-      - name: Process Queue Sequentially
+      - name: 💻 Process Queue Sequentially
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
           echo '${{ needs.check_update.outputs.queue_json }}' > queue.json
-          
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
+
           TOTAL_ITEMS=$(jq length queue.json)
-          
+
           for (( i=0; i<TOTAL_ITEMS; i++ )); do
             CURRENT_INDEX=$((i + 1))
             item=$(jq -c ".[$i]" queue.json)
-            
+
             VERSION=$(echo "$item" | jq -r '.raw')
             CUSTOM_TAG=$(echo "$item" | jq -r '.tag')
             CUSTOM_TITLE=$(echo "$item" | jq -r '.title')
             FW_DATE=$(echo "$item" | jq -r '.fw_date')
             M_IDX=$(echo "$item" | jq -r '.m_idx // "999"')
-            
+            REPORT_URL=$(echo "$item" | jq -r '.report_url // empty')
+
             echo "========================================"
             echo "PROCESSING: $CUSTOM_TITLE ($CUSTOM_TAG) [$CURRENT_INDEX/$TOTAL_ITEMS]"
             echo "========================================"
-            
+
             if [ "$VERSION" = "LATEST" ]; then
               PYTHON_ARG=""
-              FILE_MATCH="Firmware ${CUSTOM_TAG}"
             else
               PYTHON_ARG=$(echo "$VERSION" | sed 's/-card//')
-              FILE_MATCH="Firmware ${PYTHON_ARG}"
             fi
-            
+
             export FORCE_BUILD_NSP="${{ env.BUILD_NSP }}"
             export EXTRACT_DATA="${{ env.EXTRACT_DATA }}"
-            
+
             python3 firmware_downloader.py "$PYTHON_ARG" --logs | tee script_output.log
-            
+
             if [ -f "json_updated.flag" ]; then
               echo "Pushing updated Title Database to repository..."
               git add all_titles.json
@@ -367,14 +409,14 @@ jobs:
               git push origin HEAD:main || echo "Nothing to push"
               rm -f json_updated.flag
             fi
-            
+
             VER_RAW=$(grep "Raw:" script_output.log | head -n 1 | sed -E 's/.*\(Raw: ([0-9]+)\).*/\1/' || echo "0")
-            
+
             sed -n '/Archive created:/,$p' script_output.log > changelog_body.txt
-            
+
             CORRECT_ZIP_NAME="Firmware.${CUSTOM_TAG}.zip"
             CORRECT_NSP_NAME="Firmware.${CUSTOM_TAG}.nsp"
-            
+
             GEN_ZIP=$(ls Firmware*.zip 2>/dev/null | grep -v -i "Extracted" | head -n 1)
             if [ -n "$GEN_ZIP" ] && [ -f "$GEN_ZIP" ]; then
               mv "$GEN_ZIP" "$CORRECT_ZIP_NAME"
@@ -384,11 +426,11 @@ jobs:
             if [ -n "$GEN_NSP" ] && [ -f "$GEN_NSP" ]; then
               mv "$GEN_NSP" "$CORRECT_NSP_NAME"
             fi
-            
+
             sed -i -E "s/Archive created: .*/Archive created: ${CORRECT_ZIP_NAME}/g" changelog_body.txt
             sed -i -E "s/NSP created: .*/NSP created: ${CORRECT_NSP_NAME}/g" changelog_body.txt
             sed -i '/Not Found/d' changelog_body.txt
-            
+
             MIN_SIZE=$((50 * 1024 * 1024))
             if [ -f "$CORRECT_ZIP_NAME" ]; then
               FILE_SIZE=$(stat -c%s "$CORRECT_ZIP_NAME")
@@ -397,71 +439,77 @@ jobs:
                 rm -f "$CORRECT_ZIP_NAME" "$CORRECT_NSP_NAME"
               fi
             fi
-            
+
             ASSETS=()
             if [ -f "$CORRECT_ZIP_NAME" ]; then ASSETS+=("$CORRECT_ZIP_NAME"); fi
             if [ -f "$CORRECT_NSP_NAME" ]; then ASSETS+=("$CORRECT_NSP_NAME"); fi
-            
+
             EXTRACT_ZIP=$(ls Extracted_*.zip 2>/dev/null | head -n 1)
             CORRECT_EXTRACT_ZIP="Extracted.Firmware.${CUSTOM_TAG}.zip"
             if [ -n "$EXTRACT_ZIP" ] && [ -f "$EXTRACT_ZIP" ]; then 
               mv "$EXTRACT_ZIP" "$CORRECT_EXTRACT_ZIP"
               ASSETS+=("$CORRECT_EXTRACT_ZIP")
             fi
-            
+
             if [ "$FW_DATE" = "LATEST" ] || [ -z "$FW_DATE" ] || [ "$FW_DATE" = "null" ]; then
               DISPLAY_DATE=$(date +"%Y-%m-%d")
             else
               DISPLAY_DATE=$(echo "$FW_DATE" | cut -d' ' -f1)
             fi
-            
+
             echo "Official Release Date: $DISPLAY_DATE" > release_notes.md
             echo "" >> release_notes.md
             echo "Automatic download of the official Nintendo Switch firmware version $CUSTOM_TAG." >> release_notes.md
             echo "" >> release_notes.md
-            
+
+            if [ -n "$REPORT_URL" ]; then
+              echo "NinUpdates report:" >> release_notes.md
+              echo "$REPORT_URL" >> release_notes.md
+              echo "" >> release_notes.md
+            fi
+
             if [ "${{ env.BUILD_NSP }}" == "true" ] && [ -f "$CORRECT_NSP_NAME" ]; then
               echo "---" >> release_notes.md
               echo "**PS: The NSP file is intended for preservation purposes only. Please use the ZIP archive for emulators and Switch hardware instead.**" >> release_notes.md
               echo "" >> release_notes.md
             fi
-            
+
             echo "Downloaded file details:" >> release_notes.md
             echo "" >> release_notes.md
             if [ -f "changelog_body.txt" ]; then
               cat changelog_body.txt >> release_notes.md
             fi
-            
+
             gh release delete "$CUSTOM_TAG" -R ${{ github.repository }} -y --cleanup-tag 2>/dev/null || true
             git push origin --delete "$CUSTOM_TAG" 2>/dev/null || true
             git tag -d "$CUSTOM_TAG" 2>/dev/null || true
-            
+
             if [ "$M_IDX" -ge 999 ] 2>/dev/null; then
               FAKE_DATE=$(date +"%Y-%m-%dT%H:%M:%S%z")
             else
               DAYS_AGO=$((200 - M_IDX))
               FAKE_DATE=$(date -d "$DAYS_AGO days ago" +"%Y-%m-%dT%H:%M:%S%z")
             fi
-            
+
             export GIT_AUTHOR_DATE="$FAKE_DATE"
             export GIT_COMMITTER_DATE="$FAKE_DATE"
-            
+
             git rm -rf --cached .github/workflows 2>/dev/null || true
             NEW_TREE=$(git write-tree)
             NEW_COMMIT=$(git commit-tree $NEW_TREE -m "Release $CUSTOM_TAG")
             git reset HEAD .github/workflows 2>/dev/null || true
-            
+
             git tag -a "$CUSTOM_TAG" $NEW_COMMIT -m "$CUSTOM_TITLE"
             git push origin "$CUSTOM_TAG"
-            
+
             sleep 5
-            
+
             RAW_VAL=${VER_RAW:-0}
             gh release create "$CUSTOM_TAG" "${ASSETS[@]}" \
               --title "$CUSTOM_TITLE (v$RAW_VAL)" \
               --notes-file release_notes.md
-              
+
             echo "Successfully released $CUSTOM_TAG (Timestamp locked: $FAKE_DATE)."
-            
+
             rm -f *.zip *.nsp script_output.log release_notes.md changelog_body.txt
           done
