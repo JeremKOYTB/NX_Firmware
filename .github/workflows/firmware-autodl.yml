@@ -251,7 +251,6 @@ jobs:
                     fi
                   fi
 
-                  # Fallback conditionnel manuel pour les rapports spécifiques
                   if [ -z "$LATEST_VERSION" ]; then
                     case "$LATEST_REPORT_DATE" in
                       "2026-09-10_05-05-06")
@@ -284,7 +283,6 @@ jobs:
               fi
             fi
 
-            # Repli sur la dernière version de la liste codée en dur si non trouvée via NinUpdates
             if [ "$LATEST_FOUND" = "false" ]; then
               LAST_INDEX=$((${#VERSIONS[@]}-1))
               LAST_ITEM="${VERSIONS[$LAST_INDEX]}"
@@ -334,6 +332,7 @@ jobs:
     timeout-minutes: 360
     permissions:
       contents: write
+      workflows: write
 
     steps:
       - name: ⬇️ Checkout code
@@ -410,19 +409,19 @@ jobs:
               rm -f json_updated.flag
             fi
 
-            VER_RAW=$(grep "Raw:" script_output.log | head -n 1 | sed -E 's/.*\(Raw: ([0-9]+)\).*/\1/' || echo "0")
+            VER_RAW=$(grep "Raw:" script_output.log 2>/dev/null | head -n 1 | sed -E 's/.*\(Raw: ([0-9]+)\).*/\1/' || echo "0")
 
             sed -n '/Archive created:/,$p' script_output.log > changelog_body.txt
 
             CORRECT_ZIP_NAME="Firmware.${CUSTOM_TAG}.zip"
             CORRECT_NSP_NAME="Firmware.${CUSTOM_TAG}.nsp"
 
-            GEN_ZIP=$(ls Firmware*.zip 2>/dev/null | grep -v -i "Extracted" | head -n 1)
+            GEN_ZIP=$(ls Firmware*.zip 2>/dev/null | grep -v -i "Extracted" | head -n 1 || true)
             if [ -n "$GEN_ZIP" ] && [ -f "$GEN_ZIP" ]; then
               mv "$GEN_ZIP" "$CORRECT_ZIP_NAME"
             fi
 
-            GEN_NSP=$(ls Firmware*.nsp 2>/dev/null | grep -v -i "Extracted" | head -n 1)
+            GEN_NSP=$(ls Firmware*.nsp 2>/dev/null | grep -v -i "Extracted" | head -n 1 || true)
             if [ -n "$GEN_NSP" ] && [ -f "$GEN_NSP" ]; then
               mv "$GEN_NSP" "$CORRECT_NSP_NAME"
             fi
@@ -444,7 +443,7 @@ jobs:
             if [ -f "$CORRECT_ZIP_NAME" ]; then ASSETS+=("$CORRECT_ZIP_NAME"); fi
             if [ -f "$CORRECT_NSP_NAME" ]; then ASSETS+=("$CORRECT_NSP_NAME"); fi
 
-            EXTRACT_ZIP=$(ls Extracted_*.zip 2>/dev/null | head -n 1)
+            EXTRACT_ZIP=$(ls Extracted_*.zip 2>/dev/null | head -n 1 || true)
             CORRECT_EXTRACT_ZIP="Extracted.Firmware.${CUSTOM_TAG}.zip"
             if [ -n "$EXTRACT_ZIP" ] && [ -f "$EXTRACT_ZIP" ]; then 
               mv "$EXTRACT_ZIP" "$CORRECT_EXTRACT_ZIP"
