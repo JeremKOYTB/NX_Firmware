@@ -332,7 +332,6 @@ jobs:
     timeout-minutes: 360
     permissions:
       contents: write
-      workflows: write
 
     steps:
       - name: ⬇️ Checkout code
