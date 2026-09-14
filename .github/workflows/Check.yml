@@ -222,6 +222,10 @@ jobs:
           FW_DATE_REF=""
           for item in "${VERSIONS[@]}"; do
             IFS='|' read -r v_raw v_tag v_title v_date <<< "$item"
+            v_tag=$(echo "$v_tag" | tr -d '\r')
+            v_raw=$(echo "$v_raw" | tr -d '\r')
+            v_title=$(echo "$v_title" | tr -d '\r')
+            v_date=$(echo "$v_date" | tr -d '\r')
             if [ "$v_tag" = "$TAG" ]; then
               RAW="$v_raw"
               CUSTOM_TITLE="$v_title"
@@ -258,7 +262,6 @@ jobs:
 
           FW_ZIP=$(ls Firmware*.zip 2>/dev/null | grep -v -i "^Extracted" | head -n 1)
 
-          # Si aucun zip n'est attaché à la release (ex: 1.0.0-pre, cartouches sans dump), corriger le titre et quitter proprement
           if [ -z "$FW_ZIP" ] || [ ! -f "$FW_ZIP" ]; then
             echo "⚠️ Release $TAG does not contain any valid Firmware ZIP."
             echo "📝 Updating release title on GitHub anyway: $FINAL_RELEASE_TITLE"
@@ -282,7 +285,6 @@ jobs:
           echo "⚙️ Running firmware_downloader.py in pure LOCAL mode..."
           python3 firmware_downloader.py "$PYTHON_ARG" --local --logs 2>&1 | tee script_output.log || true
 
-          # Récupération du Raw si affiché dans les logs
           VER_RAW_FROM_LOG=$(grep "Firmware Version Raw:" script_output.log 2>/dev/null | tail -n 1 | awk '{print $NF}')
           if [ -n "$VER_RAW_FROM_LOG" ] && [ "$VER_RAW_FROM_LOG" -gt 0 ] 2>/dev/null; then
             REAL_RAW_VAL="$VER_RAW_FROM_LOG"
@@ -295,7 +297,6 @@ jobs:
 
           echo "📝 Mise à jour du titre de la release sur GitHub : $FINAL_RELEASE_TITLE"
 
-          # Préparation des notes de version avec signature SDK
           sed -n '/Archive created:/,$p' script_output.log > changelog_body.txt
           CORRECT_ZIP_NAME="Firmware.${TAG}.zip"
           CORRECT_NSP_NAME="Firmware.${TAG}.nsp"
@@ -304,7 +305,6 @@ jobs:
           sed -i '/Not Found/d' changelog_body.txt
           sed -i '/Firmware Version Raw:/d' changelog_body.txt
 
-          # Remplacement du hash LOCAL factice par le SHA256 réel du fichier ZIP téléchargé
           if grep -q "LOCAL_MODE_KEEP_HASH" changelog_body.txt; then
             REAL_ZIP_SHA256=$(sha256sum "$FW_ZIP" | awk '{print $1}')
             sed -i -E "s/SHA256: LOCAL_MODE_KEEP_HASH/SHA256: ${REAL_ZIP_SHA256}/g" changelog_body.txt
