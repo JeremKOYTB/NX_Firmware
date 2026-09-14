@@ -189,6 +189,37 @@ def display_gbatemp_list():
     print("="*80)
     print("INFO: Please note that some versions might be unavailable or incomplete.\n")
 
+ENV     = "lp1"
+VERSION = args.version
+
+if args.allversion:
+    print("\nINFO: You requested to download all versions.")
+    print("This requires fetching the full version list from the Nintendo Switch Firmware Datfile by 8BitWonder.")
+    print("URL: https://gbatemp.net/download/nintendo-switch-firmware-datfile.36558/")
+    allow_fetch = get_user_choice("Do you authorize the script to fetch this list automatically? [y/N]: ")
+    if allow_fetch not in ['y', 'yes', 'true']:
+        print("Aborted by user.")
+        sys.exit(1)
+
+if VERSION != "" and not args.allversion:
+    if not re.match(r"^\d+\.\d+\.\d+\.\d{4}$", VERSION):
+        print(f"WARNING: The version format '{VERSION}' is invalid.")
+        print("For the download to work properly, the format must be X.Y.Z.WWWW (e.g., 22.5.0.0200).")
+        fetch_choice = get_user_choice("If you do not know which version to type, do you want the script to fetch the 8BitWonder list on GBATemp? [y/N]: ")
+        if fetch_choice in ['y', 'yes', 'true']:
+            print("\nINFO: URL: https://gbatemp.net/download/nintendo-switch-firmware-datfile.36558/")
+            display_gbatemp_list()
+        choice = get_user_choice("Do you want to continue anyway? [y/N]: ")
+        if choice not in ['y', 'yes', 'true']:
+            print("Aborted by user.")
+            sys.exit(1)
+
+LOCAL_ONLY = os.environ.get("LOCAL_ONLY") == "true" or args.local
+FORCE_BUILD_NSP = os.environ.get("FORCE_BUILD_NSP") == "true" or args.force_nsp
+EXTRACT_DATA = os.environ.get("EXTRACT_DATA") == "true" or args.extract_data
+EXTRACT_ZIP = os.environ.get("EXTRACT_ZIP") == "true" or EXTRACT_DATA or args.extract_zip
+EXTRACT_NSP = os.environ.get("EXTRACT_NSP") == "true" or args.extract_nsp
+
 BASE_DIR = dirname(abspath(__file__))
 KEYS_DIR = join(BASE_DIR, "keys")
 HACTOOL_BIN = "hactool.exe" if os.name == "nt" else "./hactool"
@@ -1054,7 +1085,6 @@ def sync_datfile_from_releases():
                 pass
 
     print(f"\n✅ DATfile successfully generated at repository root: {new_dat_name} ({len(sorted_games)} registered firmware(s)).")
-
 
 if __name__ == "__main__":
     log_print(f"Script launched with arguments: {sys.argv}")
