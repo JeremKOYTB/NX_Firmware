@@ -110,6 +110,9 @@ jobs:
           BUILD_NSP: ${{ inputs.build_nsp }}
           TAG: ${{ matrix.tag }}
         run: |
+          set +e
+          set +o pipefail
+
           VERSIONS=(
             "0.0.0.0330|1.0.0-pre|Firmware 1.0.0-89d9b_r49916 (pre)|2017-03-02"
             "0.0.0.0450-card|1.0.0-card|Firmware 1.0.0 (Cartridge)|2017-03-02"
@@ -283,7 +286,8 @@ jobs:
           fi
 
           echo "⚙️ Running firmware_downloader.py in pure LOCAL mode..."
-          python3 firmware_downloader.py "$PYTHON_ARG" --local --logs 2>&1 | tee script_output.log || true
+          python3 firmware_downloader.py "$PYTHON_ARG" --local --logs > script_output.log 2>&1
+          cat script_output.log
 
           VER_RAW_FROM_LOG=$(grep "Firmware Version Raw:" script_output.log 2>/dev/null | tail -n 1 | awk '{print $NF}')
           if [ -n "$VER_RAW_FROM_LOG" ] && [ "$VER_RAW_FROM_LOG" -gt 0 ] 2>/dev/null; then
