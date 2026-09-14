@@ -54,10 +54,17 @@ parser.add_argument("--sync-releases", action="store_true", help="Scan all GitHu
 parser.add_argument("--displayversion", action="store_true", help="Use the simplified commercial version (e.g. 22.5.0 instead of 22.5.0.0480) for folder and ZIP/NSP naming.")
 parser.add_argument("--notimeout", action="store_true", help="Disable the 60 seconds timeout for user prompts.")
 parser.add_argument("--logs", action="store_true", help="Enable verbose logging to display every action performed by the script.")
-args, unknown_args = parser.parse_known_args()
+
+args = None
+ENV = "lp1"
+GBATEMP_MAPPING = {}
+BASE_DIR = dirname(abspath(__file__))
+KEYS_DIR = join(BASE_DIR, "keys")
+HACTOOL_BIN = "hactool.exe" if os.name == "nt" else "./hactool"
+HACTOOL_PATH = join(BASE_DIR, HACTOOL_BIN)
 
 def log_print(msg):
-    if args.logs:
+    if args and getattr(args, 'logs', False):
         print(f"[LOG] {msg}")
 
 def ensure_readable(filepath):
@@ -118,13 +125,11 @@ def input_with_timeout(prompt, timeout=60):
             return "n"
 
 def get_user_choice(prompt_text):
-    if args.notimeout:
+    if args and getattr(args, 'notimeout', False):
         log_print(f"Prompting user without timeout: {prompt_text}")
         return input(prompt_text).strip().lower()
     log_print(f"Prompting user with 60s timeout: {prompt_text}")
     return input_with_timeout(prompt_text, 60).strip().lower()
-
-GBATEMP_MAPPING = {}
 
 def get_gbatemp_firmwares():
     global GBATEMP_MAPPING
@@ -188,42 +193,6 @@ def display_gbatemp_list():
         print(f" * {line}")
     print("="*80)
     print("INFO: Please note that some versions might be unavailable or incomplete.\n")
-
-ENV     = "lp1"
-VERSION = args.version
-
-if args.allversion:
-    print("\nINFO: You requested to download all versions.")
-    print("This requires fetching the full version list from the Nintendo Switch Firmware Datfile by 8BitWonder.")
-    print("URL: https://gbatemp.net/download/nintendo-switch-firmware-datfile.36558/")
-    allow_fetch = get_user_choice("Do you authorize the script to fetch this list automatically? [y/N]: ")
-    if allow_fetch not in ['y', 'yes', 'true']:
-        print("Aborted by user.")
-        sys.exit(1)
-
-if VERSION != "" and not args.allversion:
-    if not re.match(r"^\d+\.\d+\.\d+\.\d{4}$", VERSION):
-        print(f"WARNING: The version format '{VERSION}' is invalid.")
-        print("For the download to work properly, the format must be X.Y.Z.WWWW (e.g., 22.5.0.0200).")
-        fetch_choice = get_user_choice("If you do not know which version to type, do you want the script to fetch the 8BitWonder list on GBATemp? [y/N]: ")
-        if fetch_choice in ['y', 'yes', 'true']:
-            print("\nINFO: URL: https://gbatemp.net/download/nintendo-switch-firmware-datfile.36558/")
-            display_gbatemp_list()
-        choice = get_user_choice("Do you want to continue anyway? [y/N]: ")
-        if choice not in ['y', 'yes', 'true']:
-            print("Aborted by user.")
-            sys.exit(1)
-
-LOCAL_ONLY = os.environ.get("LOCAL_ONLY") == "true" or args.local
-FORCE_BUILD_NSP = os.environ.get("FORCE_BUILD_NSP") == "true" or args.force_nsp
-EXTRACT_DATA = os.environ.get("EXTRACT_DATA") == "true" or args.extract_data
-EXTRACT_ZIP = os.environ.get("EXTRACT_ZIP") == "true" or EXTRACT_DATA or args.extract_zip
-EXTRACT_NSP = os.environ.get("EXTRACT_NSP") == "true" or args.extract_nsp
-
-BASE_DIR = dirname(abspath(__file__))
-KEYS_DIR = join(BASE_DIR, "keys")
-HACTOOL_BIN = "hactool.exe" if os.name == "nt" else "./hactool"
-HACTOOL_PATH = join(BASE_DIR, HACTOOL_BIN)
 
 def readdata(f, addr, size):
     f.seek(addr)
@@ -776,7 +745,8 @@ class FirmwareDownloader:
             self.disp_ver = self.ver_string_simple
             self.original_line = f"Firmware {self.ver_string_simple} (NintendoSDK Firmware for NX {self.ver_string_simple}-1.0) ({self.ver_string_full})"
             
-        if args.displayversion:
+        display_flag = getattr(args, 'displayversion', False) if args else False
+        if display_flag:
             self.ver_dir = f"Firmware {self.disp_ver}"
         else:
             self.ver_dir = f"Firmware {self.ver_string_full}"
@@ -811,7 +781,8 @@ class FirmwareDownloader:
         full_ver_dir = join(BASE_DIR, self.ver_dir)
         makedirs(full_ver_dir, exist_ok=True)
 
-        if LOCAL_ONLY:
+        local_mode = (os.environ.get("LOCAL_ONLY") == "true") or (args and getattr(args, 'local', False))
+        if local_mode:
             if title_id.lower() == "010000000000081b" and not glob(join(full_ver_dir, "*.nca")):
                  self.sv_nca_exfat = ""
             return
@@ -826,7 +797,8 @@ class FirmwareDownloader:
             log_print(f"Resolved CNMT ID for title {title_id} v{version}: {cnmt_id}")
         except HTTPError as e:
             if e.response is not None and e.response.status_code == 404:
-                if not args.allversion: print(f"INFO: Title {title_id} version {version} not found (404).")
+                if not (args and getattr(args, 'allversion', False)):
+                    print(f"INFO: Title {title_id} version {version} not found (404).")
                 if title_id.lower() == "010000000000081b":
                     self.sv_nca_exfat = ""
                 return
@@ -1086,8 +1058,42 @@ def sync_datfile_from_releases():
 
     print(f"\n✅ DATfile successfully generated at repository root: {new_dat_name} ({len(sorted_games)} registered firmware(s)).")
 
+# ==============================================================================
+# SÉQUENCE D'EXÉCUTION PRINCIPALE
+# ==============================================================================
 if __name__ == "__main__":
+    args, unknown_args = parser.parse_known_args()
     log_print(f"Script launched with arguments: {sys.argv}")
+
+    VERSION = args.version
+
+    if args.allversion:
+        print("\nINFO: You requested to download all versions.")
+        print("This requires fetching the full version list from the Nintendo Switch Firmware Datfile by 8BitWonder.")
+        print("URL: https://gbatemp.net/download/nintendo-switch-firmware-datfile.36558/")
+        allow_fetch = get_user_choice("Do you authorize the script to fetch this list automatically? [y/N]: ")
+        if allow_fetch not in ['y', 'yes', 'true']:
+            print("Aborted by user.")
+            sys.exit(1)
+
+    if VERSION != "" and not args.allversion:
+        if not re.match(r"^\d+\.\d+\.\d+\.\d{4}$", VERSION):
+            print(f"WARNING: The version format '{VERSION}' is invalid.")
+            print("For the download to work properly, the format must be X.Y.Z.WWWW (e.g., 22.5.0.0200).")
+            fetch_choice = get_user_choice("If you do not know which version to type, do you want the script to fetch the 8BitWonder list on GBATemp? [y/N]: ")
+            if fetch_choice in ['y', 'yes', 'true']:
+                print("\nINFO: URL: https://gbatemp.net/download/nintendo-switch-firmware-datfile.36558/")
+                display_gbatemp_list()
+            choice = get_user_choice("Do you want to continue anyway? [y/N]: ")
+            if choice not in ['y', 'yes', 'true']:
+                print("Aborted by user.")
+                sys.exit(1)
+
+    LOCAL_ONLY = os.environ.get("LOCAL_ONLY") == "true" or args.local
+    FORCE_BUILD_NSP = os.environ.get("FORCE_BUILD_NSP") == "true" or args.force_nsp
+    EXTRACT_DATA = os.environ.get("EXTRACT_DATA") == "true" or args.extract_data
+    EXTRACT_ZIP = os.environ.get("EXTRACT_ZIP") == "true" or EXTRACT_DATA or args.extract_zip
+    EXTRACT_NSP = os.environ.get("EXTRACT_NSP") == "true" or args.extract_nsp
 
     if args.sync_releases:
         sync_datfile_from_releases()
