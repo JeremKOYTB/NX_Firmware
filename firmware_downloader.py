@@ -50,6 +50,7 @@ parser.add_argument("--extract-data", action="store_true", help="Extract underly
 parser.add_argument("--extract-zip", action="store_true", help="Extract raw NCA files directly from the generated ZIP archive.")
 parser.add_argument("--extract-nsp", action="store_true", help="Extract raw NCA files directly from the compiled NSP file.")
 parser.add_argument("--datfile", action="store_true", help="Generate or update the Logiqx XML DAT file used for ROM management.")
+parser.add_argument("--dat-from-zips", action="store_true", help="Scan all local 'Firmware*.zip' archives (strictly ignoring 'Extracted*') to build the DATfile.")
 parser.add_argument("--sync-releases", action="store_true", help="Scan all GitHub releases and generate/sync the DAT file for all available firmwares in order.")
 parser.add_argument("--displayversion", action="store_true", help="Use the simplified commercial version (e.g. 22.5.0 instead of 22.5.0.0480) for folder and ZIP/NSP naming.")
 parser.add_argument("--notimeout", action="store_true", help="Disable the 60 seconds timeout for user prompts.")
@@ -581,283 +582,6 @@ def find_firmware_identity(folder_path):
 
     return final_line, sdk_found
 
-def zipdir(src_dir, out_zip):
-    src_dir_path = join(BASE_DIR, src_dir)
-    out_zip_path = join(BASE_DIR, out_zip)
-    log_print(f"Archiving directory {src_dir_path} to {out_zip_path}")
-    
-    total_files = sum(len(files) for _, _, files in os.walk(src_dir_path))
-
-    with ZipFile(out_zip_path, "w", compression=ZIP_STORED) as zf:
-        with tqdm(total=total_files, unit='files', desc=f"Archiving {basename(out_zip)}") as pbar:
-            for root, dirs, files in os.walk(src_dir_path):
-                dirs.sort()
-                for name in sorted(files):
-                    full = os.path.join(root, name)
-                    rel = os.path.relpath(full, start=src_dir_path) 
-                    
-                    os.utime(full, (1780315200, 1780315200))
-                    
-                    zinfo = ZipInfo.from_file(full, arcname=rel)
-                    zinfo.date_time = (2026, 1, 1, 0, 0, 0)
-                    zinfo.create_system = 0
-                    zinfo.external_attr = 0 
-                    zinfo.compress_type = ZIP_STORED
-                    
-                    with open(full, 'rb') as f:
-                        zf.writestr(zinfo, f.read())
-                    pbar.update(1)
-
-class NSPRepacker:
-    def __init__(self, out_path, file_map):
-        self.path = out_path
-        self.file_map = file_map
-        self.sorted_files = []
-        self.expected_total_size = 0
-        
-    def _sort_pfs0_order(self):
-        order_list = []
-        order_keys = ["tik", "cert", "meta_nca", 1, 3, 5, 4, 2]
-        for key in order_keys:
-            if key in self.file_map:
-                items = self.file_map[key]
-                if isinstance(items, list) and items:
-                    order_list.extend(sorted(items, key=lambda x: basename(x)))
-        self.sorted_files = order_list
-
-    def repack(self):
-        self._sort_pfs0_order()
-        log_print(f"Compiling {len(self.sorted_files)} components into rigorous PFS0 archive...")
-        log_print(f"PFS0 Canonical Write Order Enforced: {[basename(f) for f in self.sorted_files]}")
-        
-        for f_path in self.sorted_files:
-            ensure_readable(f_path)
-            
-        hd = self._gen_header()
-        self.expected_total_size = len(hd) + sum(getsize(file) for file in self.sorted_files)
-        
-        log_print(f"Calculated target container size: {self.expected_total_size} bytes.")
-        
-        if exists(self.path) and getsize(self.path) == self.expected_total_size:
-            log_print(f"NSP {basename(self.path)} already exists and matches expected size.")
-            return self.path
-            
-        with open(self.path, 'wb') as outf:
-            outf.write(hd)
-            with tqdm(total=sum(getsize(f) for f in self.sorted_files), unit='B', unit_scale=True, desc="Writing NSP", leave=False) as pbar:
-                for file in self.sorted_files:
-                    with open(file, 'rb') as inf:
-                        while True:
-                            buf = inf.read(4096 * 1024)
-                            if not buf:
-                                break
-                            outf.write(buf)
-                            pbar.update(len(buf))
-        log_print("Local PFS0 Write Complete.")
-        return self.path
-
-    def verify_integrity(self):
-        log_print(f"Deep Integrity Audit for {basename(self.path)}...")
-        ensure_readable(self.path)
-        try:
-            with open(self.path, "rb") as f:
-                magic = f.read(4)
-                log_print(f"Integrity Audit: Read Magic Bytes -> {magic}")
-                if magic != b'PFS0':
-                    return False
-                file_count = unpack('<I', f.read(4))[0]
-                log_print(f"Integrity Audit: File Count -> {file_count} (Expected: {len(self.sorted_files)})")
-                if file_count != len(self.sorted_files):
-                    return False
-                string_table_size = unpack('<I', f.read(4))[0]
-                log_print(f"Integrity Audit: Raw String Table Size -> {string_table_size} bytes")
-                f.read(4)
-                header_size = 0x10 + (file_count * 0x18) + string_table_size
-                log_print(f"Integrity Audit: Computed Header Boundary -> {header_size} bytes")
-                
-                for i in range(file_count):
-                    offset = unpack('<Q', f.read(8))[0]
-                    size = unpack('<Q', f.read(8))[0]
-                    name_offset = unpack('<I', f.read(4))[0]
-                    f.read(4)
-                    if name_offset >= string_table_size:
-                        log_print(f"Integrity Audit: String offset out of bounds on file index {i}.")
-                        return False
-                    if (header_size + offset + size) > self.expected_total_size:
-                        log_print(f"Integrity Audit: OOB Exception. File index {i} bounds exceed expected archive EOF.")
-                        return False
-                        
-                f.seek(0, 2)
-                actual_size = f.tell()
-                if actual_size != self.expected_total_size:
-                    log_print(f"Integrity Audit: EOF Mismatch. Got {actual_size}, Expected {self.expected_total_size}.")
-                    return False
-                    
-            log_print("PFS0 Container mathematically verified (Magic, Structure, Boundaries, and EOF).")
-            return True
-        except Exception as e:
-            log_print(f"Integrity Audit Exception: {e}")
-            return False
-            
-    def _gen_header(self):
-        files_nb = len(self.sorted_files)
-        string_table = b'\x00'.join(basename(file).encode('utf-8') for file in self.sorted_files) + b'\x00'
-        
-        raw_header_size = 0x10 + files_nb * 0x18 + len(string_table)
-        remainder = (0x10 - (raw_header_size % 0x10)) % 0x10
-        padded_string_table_size = len(string_table) + remainder
-        
-        log_print(f"Generating Header | Files: {files_nb}, StringTable Size: {len(string_table)}, Padding: {remainder} bytes.")
-        
-        file_sizes = [getsize(file) for file in self.sorted_files]
-        file_offsets = [sum(file_sizes[:n]) for n in range(files_nb)]
-        file_names_lengths = [len(basename(file).encode('utf-8')) + 1 for file in self.sorted_files]
-        string_table_offsets = [sum(file_names_lengths[:n]) for n in range(files_nb)]
-        
-        header = b'PFS0'
-        header += pack('<I', files_nb)
-        header += pack('<I', padded_string_table_size)
-        header += b'\x00\x00\x00\x00'
-        for n in range(files_nb):
-            header += pack('<Q', file_offsets[n])
-            header += pack('<Q', file_sizes[n])
-            header += pack('<I', string_table_offsets[n])
-            header += b'\x00\x00\x00\x00'
-        header += string_table
-        header += remainder * b'\x00'
-        return header
-
-class FirmwareDownloader:
-    def __init__(self, device_id: str, ver_string_full: str):
-        self.device_id = device_id
-        self.ver_string_full = ver_string_full
-        self.user_agent = f"NintendoSDK Firmware/11.0.0-0 (platform:NX; did:{self.device_id}; eid:{ENV})"
-        
-        parts = list(map(int, self.ver_string_full.split(".")))
-        if len(parts) == 3: parts.append(0) 
-        self.ver_raw = parts[0]*0x4000000 + parts[1]*0x100000 + parts[2]*0x10000 + parts[3]
-        self.ver_string_simple = f"{parts[0]}.{parts[1]}.{parts[2]}"
-
-        if self.ver_string_full in GBATEMP_MAPPING:
-            self.disp_ver = GBATEMP_MAPPING[self.ver_string_full]['disp_ver']
-            self.original_line = GBATEMP_MAPPING[self.ver_string_full]['original_line']
-        else:
-            self.disp_ver = self.ver_string_simple
-            self.original_line = f"Firmware {self.ver_string_simple} (NintendoSDK Firmware for NX {self.ver_string_simple}-1.0) ({self.ver_string_full})"
-            
-        display_flag = getattr(args, 'displayversion', False) if args else False
-        if display_flag:
-            self.ver_dir = f"Firmware {self.disp_ver}"
-        else:
-            self.ver_dir = f"Firmware {self.ver_string_full}"
-            
-        self.update_files = []
-        self.update_dls = []
-        self.sv_nca_fat = ""
-        self.sv_nca_exfat = ""
-        self.seen_titles = set()
-        self.queued_ncas = set()
-        self.nca_to_tid = {}
-        self.expected_sizes = {}
-        self.session = requests.Session()
-        self.pfs0_map = {
-            "tik": [], "cert": [], "meta_nca": [], "meta_xml": [],
-            1: [], 2: [], 3: [], 4: [], 5: [], 6: []
-        }
-        self.init_error = False
-        self.skip = False
-        self.hash_failed = False
-        self.is_cached = False
-        self.sdk_found = False
-        self.exact_sdk_line = None
-
-    def dltitle(self, title_id: str, version: int, is_su: bool = False):
-        key = (title_id, version, is_su)
-        if key in self.seen_titles:
-            return
-        self.seen_titles.add(key)
-
-        p = "s" if is_su else "a"
-        full_ver_dir = join(BASE_DIR, self.ver_dir)
-        makedirs(full_ver_dir, exist_ok=True)
-
-        local_mode = (os.environ.get("LOCAL_ONLY") == "true") or (args and getattr(args, 'local', False))
-        if local_mode:
-            if title_id.lower() == "010000000000081b" and not glob(join(full_ver_dir, "*.nca")):
-                 self.sv_nca_exfat = ""
-            return
-
-        try:
-            cnmt_id = nin_request(
-                "HEAD",
-                f"https://atumn.hac.{ENV}.d4c.nintendo.net/t/{p}/{title_id}/{version}?device_id={self.device_id}",
-                self.user_agent,
-                session=self.session
-            ).headers["X-Nintendo-Content-ID"]
-            log_print(f"Resolved CNMT ID for title {title_id} v{version}: {cnmt_id}")
-        except HTTPError as e:
-            if e.response is not None and e.response.status_code == 404:
-                if not (args and getattr(args, 'allversion', False)):
-                    print(f"INFO: Title {title_id} version {version} not found (404).")
-                if title_id.lower() == "010000000000081b":
-                    self.sv_nca_exfat = ""
-                return
-            raise
-
-        cnmt_nca = join(full_ver_dir, f"{cnmt_id}.cnmt.nca")
-        self.update_files.append(cnmt_nca)
-        self.pfs0_map["meta_nca"].append(cnmt_nca)
-        
-        dlfile(
-            f"https://atumn.hac.{ENV}.d4c.nintendo.net/c/{p}/{cnmt_id}?device_id={self.device_id}",
-            cnmt_nca,
-            self.user_agent,
-            session=self.session,
-            silent=True
-        )
-
-        cnmt_title_id, entries, is_su_type = parse_cnmt(cnmt_nca)
-
-        if exists(cnmt_nca):
-            self.expected_sizes[f"{cnmt_id}.cnmt.nca"] = getsize(cnmt_nca)
-        else:
-            self.expected_sizes[f"{cnmt_id}.cnmt.nca"] = 0
-            
-        self.update_dls.append((
-            f"https://atumn.hac.{ENV}.d4c.nintendo.net/c/{p}/{cnmt_id}?device_id={self.device_id}",
-            self.ver_dir,
-            f"{cnmt_id}.cnmt.nca",
-            ""
-        ))
-
-        if is_su_type:
-            log_print(f"CNMT {cnmt_id} identified as SystemUpdate. Queueing dependencies...")
-            for t_id, ver, _, _ in entries:
-                self.dltitle(t_id, ver, is_su=False)
-        else:
-            log_print(f"CNMT {cnmt_id} identified as Data. Queueing {len(entries)} NCAs...")
-            for nca_id, nca_hash, entry_type, nca_size in entries:
-                self.nca_to_tid[nca_id] = cnmt_title_id
-                self.expected_sizes[f"{nca_id}.nca"] = nca_size
-                if cnmt_title_id.lower() == "0100000000000809" and entry_type in (1, 2):
-                    self.sv_nca_fat = f"{nca_id}.nca"
-                elif cnmt_title_id.lower() == "010000000000081b" and entry_type in (1, 2):
-                    self.sv_nca_exfat = f"{nca_id}.nca"
-
-                if nca_id not in self.queued_ncas:
-                    self.queued_ncas.add(nca_id)
-                    nca_path = join(full_ver_dir, f"{nca_id}.nca")
-                    self.update_files.append(nca_path)
-                    if entry_type in self.pfs0_map:
-                        self.pfs0_map[entry_type].append(nca_path)
-                        
-                    self.update_dls.append((
-                        f"https://atumn.hac.{ENV}.d4c.nintendo.net/c/c/{nca_id}?device_id={self.device_id}",
-                        self.ver_dir,
-                        f"{nca_id}.nca",
-                        nca_hash
-                    ))
-
 def extract_version_order(game_data):
     name = game_data.get('name', '')
     match = re.search(r'Firmware\s+(\d+(?:\.\d+)+)', name)
@@ -884,129 +608,91 @@ def extract_version_order(game_data):
 
     return (*v_parts, sub, raw_val)
 
-def sync_datfile_from_releases():
-    log_print("Starting automated DATfile synchronization from GitHub releases...")
+def generate_dat_from_local_zips():
+    log_print("Scanning directory for Firmware*.zip archives (excluding Extracted*)...")
     get_gbatemp_firmwares()
 
-    dat_files = glob(join(BASE_DIR, "Nintendo*Nintendo Switch Firmware (*)*.dat"))
+    zip_candidates = [
+        f for f in os.listdir(BASE_DIR)
+        if f.lower().endswith(".zip")
+        and f.lower().startswith("firmware")
+        and not f.lower().startswith("extracted")
+    ]
+
+    if not zip_candidates:
+        print("INFO: No valid 'Firmware*.zip' archives found in the directory.")
+        return
+
+    print(f"\nINFO: Found {len(zip_candidates)} archive(s) matching 'Firmware*.zip'.")
     existing_games = {}
 
-    for old_dat in dat_files:
+    for zname in sorted(zip_candidates):
+        zpath = join(BASE_DIR, zname)
+        ensure_readable(zpath)
+
+        tmp_ident_dir = join(BASE_DIR, f"tmp_ident_{uuid.uuid4().hex[:8]}")
+        makedirs(tmp_ident_dir, exist_ok=True)
+        roms = []
+
         try:
-            tree = ET.parse(old_dat)
-            root = tree.getroot()
-            for game_elem in root.findall('game'):
-                g_name = game_elem.get('name')
-                roms = []
-                for rom_elem in game_elem.findall('rom'):
-                    roms.append({
-                        'name': rom_elem.get('name'),
-                        'size': rom_elem.get('size'),
-                        'crc': rom_elem.get('crc'),
-                        'md5': rom_elem.get('md5'),
-                        'sha1': rom_elem.get('sha1')
-                    })
-                existing_games[g_name] = {'name': g_name, 'roms': roms}
-        except Exception as e:
-            log_print(f"Failed to parse existing DAT file {old_dat}: {e}")
+            with ZipFile(zpath, "r") as zf:
+                nca_members = [m for m in zf.infolist() if m.filename.lower().endswith(".nca") and not m.is_dir()]
+                if not nca_members:
+                    print(f"WARNING: No NCA files found in {zname}. Skipping.")
+                    continue
 
-    print(f"INFO: Loaded {len(existing_games)} existing firmware entry/entries from local DAT file(s).")
+                with tqdm(total=len(nca_members), unit='file', desc=f"Hashing {zname}") as pbar:
+                    for member in sorted(nca_members, key=lambda x: basename(x.filename)):
+                        fname = basename(member.filename)
+                        
+                        # Extraire uniquement les CNMT et NCA légers nécessaires pour l'inspection hactool
+                        if fname.endswith(".cnmt.nca") or member.file_size <= 5242880:
+                            zf.extract(member, tmp_ident_dir)
 
-    try:
-        cmd = ["gh", "release", "list", "-L", "1000", "--json", "tagName", "--jq", ".[].tagName"]
-        res = run(cmd, stdout=PIPE, stderr=PIPE, text=True)
-        if res.returncode != 0:
-            print(f"ERROR: Failed to retrieve release list via gh CLI: {res.stderr.strip()}")
-            sys.exit(1)
-        release_tags = [t.strip() for t in res.stdout.splitlines() if t.strip()]
-    except Exception as e:
-        print(f"ERROR: Exception executing gh command: {e}")
-        sys.exit(1)
+                        md5_h = hashlib.md5()
+                        sha1_h = hashlib.sha1()
+                        crc_val = 0
+                        sz = member.file_size
 
-    print(f"INFO: Found {len(release_tags)} release(s) on GitHub.")
+                        with zf.open(member) as f:
+                            for chunk in iter(lambda: f.read(1048576), b""):
+                                md5_h.update(chunk)
+                                sha1_h.update(chunk)
+                                crc_val = zlib.crc32(chunk, crc_val)
 
-    for tag in release_tags:
-        clean_v = tag.replace("-card", "").replace("-pre", "")
-        found_key = None
+                        roms.append({
+                            'name': fname,
+                            'size': str(sz),
+                            'crc': "%08x" % (crc_val & 0xFFFFFFFF),
+                            'md5': md5_h.hexdigest(),
+                            'sha1': sha1_h.hexdigest()
+                        })
+                        pbar.update(1)
 
-        for g_name in existing_games.keys():
-            if f"({clean_v})" in g_name or f"Firmware {tag}" in g_name:
-                found_key = g_name
-                break
+            identity_line, _ = find_firmware_identity(tmp_ident_dir)
+            m_tag = re.search(r'Firmware[\.\s]([0-9a-zA-Z\.\-_]+?)(?:\.zip|$)', zname, re.IGNORECASE)
+            raw_tag = m_tag.group(1).strip() if m_tag else zname.replace(".zip", "")
 
-        if found_key and len(existing_games[found_key]['roms']) > 0:
-            log_print(f"Release {tag} already present in DAT as '{found_key}'. Skipping download.")
-            continue
-
-        target_zip_name = f"Firmware.{tag}.zip"
-        print(f"\n[DAT] Missing release in DAT: {tag}. Downloading {target_zip_name}...")
-        tmp_dl_dir = join(BASE_DIR, f"tmp_dat_{uuid.uuid4().hex[:8]}")
-        makedirs(tmp_dl_dir, exist_ok=True)
-        try:
-            dl_cmd = ["gh", "release", "download", tag, "-p", target_zip_name, "--dir", tmp_dl_dir, "--clobber"]
-            res = run(dl_cmd, stdout=PIPE, stderr=PIPE, text=True)
-            if res.returncode != 0:
-                print(f"WARNING: Could not download {target_zip_name} for release {tag}: {res.stderr.strip()}")
-                continue
-
-            zip_file = join(tmp_dl_dir, target_zip_name)
-            if not exists(zip_file):
-                print(f"WARNING: {target_zip_name} not found in download directory.")
-                continue
-
-            extract_folder = join(tmp_dl_dir, "extracted")
-            makedirs(extract_folder, exist_ok=True)
-            with ZipFile(zip_file, 'r') as zf:
-                zf.extractall(extract_folder)
-
-            nca_files = []
-            for root, _, files in os.walk(extract_folder):
-                for f in files:
-                    if f.endswith(".nca"):
-                        nca_files.append(join(root, f))
-
-            if not nca_files:
-                print(f"WARNING: No NCA files found in archive for release {tag}.")
-                continue
-
-            current_roms = []
-            with tqdm(total=len(nca_files), unit='file', desc=f"Hashing NCAs for {tag}") as pbar:
-                for nca in sorted(nca_files, key=basename):
-                    md5_h = hashlib.md5()
-                    sha1_h = hashlib.sha1()
-                    crc_val = 0
-                    sz = getsize(nca)
-                    with open(nca, "rb") as f:
-                        for chunk in iter(lambda: f.read(1048576), b""):
-                            md5_h.update(chunk)
-                            sha1_h.update(chunk)
-                            crc_val = zlib.crc32(chunk, crc_val)
-                    current_roms.append({
-                        'name': basename(nca),
-                        'size': str(sz),
-                        'crc': "%08x" % (crc_val & 0xFFFFFFFF),
-                        'md5': md5_h.hexdigest(),
-                        'sha1': sha1_h.hexdigest()
-                    })
-                    pbar.update(1)
-
-            identity_line, _ = find_firmware_identity(extract_folder)
             if identity_line:
                 resolved_name = identity_line
-                if "-pre" in tag.lower() and "pre" not in resolved_name.lower():
+                if "-pre" in raw_tag.lower() and "pre" not in resolved_name.lower():
                     resolved_name = f"{resolved_name} (pre)"
-                elif "-card" in tag.lower() and "card" not in resolved_name.lower() and "cartridge" not in resolved_name.lower():
+                elif "-card" in raw_tag.lower() and "card" not in resolved_name.lower() and "cartridge" not in resolved_name.lower():
                     resolved_name = f"{resolved_name} (cartridge)"
             else:
-                resolved_name = f"Firmware {tag}"
+                resolved_name = f"Firmware {raw_tag}"
+                clean_v = raw_tag.replace("-card", "").replace("-pre", "")
                 if clean_v in GBATEMP_MAPPING:
                     resolved_name = GBATEMP_MAPPING[clean_v]['original_line']
 
-            existing_games[resolved_name] = {'name': resolved_name, 'roms': current_roms}
-            print(f"[DAT] Added '{resolved_name}' with {len(current_roms)} NCAs.")
+            existing_games[resolved_name] = {'name': resolved_name, 'roms': roms}
+            print(f"[DAT] Registered '{resolved_name}' ({len(roms)} NCAs)")
+
+        except Exception as e:
+            print(f"ERROR: Failed processing {zname}: {e}")
         finally:
-            if exists(tmp_dl_dir):
-                rmtree(tmp_dl_dir, ignore_errors=True)
+            if exists(tmp_ident_dir):
+                rmtree(tmp_ident_dir, ignore_errors=True)
 
     sorted_games = sorted(existing_games.values(), key=extract_version_order, reverse=False)
 
@@ -1014,20 +700,20 @@ def sync_datfile_from_releases():
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&apos;")
 
     timestamp_disp = time.strftime("%Y%m%d%H%M%S")
-
-    xml_lines = []
-    xml_lines.append('<?xml version="1.0"?>')
-    xml_lines.append('<!DOCTYPE datafile PUBLIC "' + chr(45) + '//Logiqx//DTD ROM Management Datafile//EN" "http://www.logiqx.com/Dats/datafile.dtd">')
-    xml_lines.append('<datafile>')
-    xml_lines.append('    <header>')
-    xml_lines.append('        <name>Nintendo ' + chr(45) + ' Nintendo Switch Firmware</name>')
-    xml_lines.append('        <description>Nintendo ' + chr(45) + ' Nintendo Switch Firmware</description>')
-    xml_lines.append(f'        <version>{timestamp_disp}</version>')
-    xml_lines.append('        <author>Twitter: @JeremKOYTB</author>')
-    xml_lines.append('        <comment>DAT generated by firmware_downloader.py. Inspired by the work of 8BitWonder to help him better archive this!</comment>')
-    xml_lines.append('        <homepage>gbatemp.net</homepage>')
-    xml_lines.append('        <url>https://gbatemp.net/download/nintendo' + chr(45) + 'switch' + chr(45) + 'firmware' + chr(45) + 'datfile.36558/</url>')
-    xml_lines.append('    </header>')
+    xml_lines = [
+        '<?xml version="1.0"?>',
+        '<!DOCTYPE datafile PUBLIC "-//Logiqx//DTD ROM Management Datafile//EN" "http://www.logiqx.com/Dats/datafile.dtd">',
+        '<datafile>',
+        '    <header>',
+        '        <name>Nintendo - Nintendo Switch Firmware</name>',
+        '        <description>Nintendo - Nintendo Switch Firmware</description>',
+        f'        <version>{timestamp_disp}</version>',
+        '        <author>Twitter: @JeremKOYTB</author>',
+        '        <comment>DAT generated by firmware_downloader.py. Inspired by the work of 8BitWonder to help him better archive this!</comment>',
+        '        <homepage>gbatemp.net</homepage>',
+        '        <url>https://gbatemp.net/download/nintendo-switch-firmware-datfile.36558/</url>',
+        '    </header>'
+    ]
 
     for game in sorted_games:
         game_name = escape_xml(game['name'])
@@ -1049,7 +735,7 @@ def sync_datfile_from_releases():
     with open(join(BASE_DIR, new_dat_name), "w", encoding="utf-8") as f:
         f.write("\n".join(xml_lines) + "\n")
 
-    for old_dat in dat_files:
+    for old_dat in glob(join(BASE_DIR, "Nintendo*Nintendo Switch Firmware (*)*.dat")):
         if basename(old_dat) != new_dat_name:
             try:
                 remove(old_dat)
@@ -1064,6 +750,17 @@ def sync_datfile_from_releases():
 if __name__ == "__main__":
     args, unknown_args = parser.parse_known_args()
     log_print(f"Script launched with arguments: {sys.argv}")
+
+    if args.dat_from_zips:
+        generate_dat_from_local_zips()
+        sys.exit(0)
+
+    if args.sync_releases:
+        sync_datfile_from_releases()
+        sys.exit(0)
+
+    if args.allversion or args.displayversion or args.datfile:
+        get_gbatemp_firmwares()
 
     VERSION = args.version
 
@@ -1094,13 +791,6 @@ if __name__ == "__main__":
     EXTRACT_DATA = os.environ.get("EXTRACT_DATA") == "true" or args.extract_data
     EXTRACT_ZIP = os.environ.get("EXTRACT_ZIP") == "true" or EXTRACT_DATA or args.extract_zip
     EXTRACT_NSP = os.environ.get("EXTRACT_NSP") == "true" or args.extract_nsp
-
-    if args.sync_releases:
-        sync_datfile_from_releases()
-        sys.exit(0)
-
-    if args.allversion or args.displayversion or args.datfile:
-        get_gbatemp_firmwares()
 
     if os.name == 'nt' and not exists(HACTOOL_PATH):
         print("INFO: hactool.exe not found. Downloading automatically...")
