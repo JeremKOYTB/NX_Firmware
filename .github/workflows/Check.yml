@@ -246,7 +246,6 @@ jobs:
             PYTHON_ARG="${PYTHON_ARG}.0000"
           fi
 
-          # Calcul mathématique exact du RAW version
           IFS='.' read -r M_MAJ M_MIN M_MIC M_BLD <<< "$PYTHON_ARG"
           M_BLD=$((10#$M_BLD))
           REAL_RAW_VAL=$(( (M_MAJ << 26) | (M_MIN << 20) | (M_MIC << 16) | M_BLD ))
