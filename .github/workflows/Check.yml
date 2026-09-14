@@ -398,7 +398,7 @@ jobs:
                   'sha1': sha1_h.hexdigest()
               })
 
-          identity_res, _ = firmware_downloader.find_firmware_identity(folder_name)
+          identity_res, _ = firmware_downloader.find_firmware_identity(folder_name, tag)
           entry_name = identity_res if identity_res else f"Firmware {tag}"
 
           os.makedirs(".dat_cache", exist_ok=True)
@@ -485,11 +485,23 @@ jobs:
                           with open(os.path.join(cache_dir, jf), "r", encoding="utf-8") as f:
                               d = json.load(f)
                               name = d["name"]
-                              clean_v = d["tag"].replace("-card", "").replace("-pre", "")
+                              tag = d["tag"]
+                              clean_v = tag.replace("-card", "").replace("-pre", "")
+
+                              # Suppression ciblée évitant d'écraser la version cartouche avec la version numérique
                               for k in list(existing_games.keys()):
-                                  if f"({clean_v})" in k or f"Firmware {d['tag']}" in k or k == name:
-                                      del existing_games[k]
-                                      break
+                                  k_low = k.lower()
+                                  if "-pre" in tag.lower():
+                                      if ("pre-release" in k_low or "(pre)" in k_low) and clean_v in k:
+                                          del existing_games[k]
+                                  elif "-card" in tag.lower():
+                                      if "cartridge" in k_low and clean_v in k:
+                                          del existing_games[k]
+                                  else:
+                                      if "cartridge" not in k_low and "pre-release" not in k_low and "(pre)" not in k_low:
+                                          if f"({clean_v})" in k or f"Firmware {clean_v} " in k:
+                                              del existing_games[k]
+
                               existing_games[name] = {'name': name, 'roms': d["roms"]}
                       except Exception:
                           pass
@@ -500,11 +512,8 @@ jobs:
               v_parts = [int(p) for p in m.group(1).split('.')] if m else [0, 0, 0]
               while len(v_parts) < 3: v_parts.append(0)
               nl = name.lower()
-              if "-pre" in nl or "(pre)" in nl: sub = -2
-              elif "card" in nl or "cartridge" in nl: sub = -1
-              elif "rebootless" in nl:
-                  rm = re.search(r'rebootless(?:\s*update)?\s*(\d+)', nl)
-                  sub = int(rm.group(1)) if rm else 1
+              if "pre-release" in nl or "-pre" in nl or "(pre)" in nl: sub = -2
+              elif "cartridge" in nl or "-card" in nl: sub = -1
               else: sub = 0
               raw_match = re.search(r'\((\d+\.\d+\.\d+\.\d{4})\)', name)
               raw_val = raw_match.group(1) if raw_match else ""
