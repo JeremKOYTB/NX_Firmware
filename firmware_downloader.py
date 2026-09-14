@@ -577,7 +577,7 @@ def find_firmware_identity(folder_path, tag_hint=""):
     if not real_full_ver:
         real_full_ver = f"{comm_ver}.0000"
 
-    # Détection stricte et normalisée du suffixe officiel (sans [Rebootless] ni (pre))
+    # Détection stricte et normalisée du suffixe officiel
     hint = f"{folder_path} {tag_hint}".lower()
     suffix = ""
     if "-pre" in hint or "(pre" in hint or "pre-release" in hint:
@@ -870,6 +870,29 @@ class FirmwareDownloader:
                         f"{nca_id}.nca",
                         nca_hash
                     ))
+
+def extract_version_order(game_data):
+    name = game_data.get('name', '')
+    match = re.search(r'Firmware\s+(\d+(?:\.\d+)+)', name)
+    if match:
+        v_parts = [int(p) for p in match.group(1).split('.')]
+        while len(v_parts) < 3:
+            v_parts.append(0)
+    else:
+        v_parts = [0, 0, 0]
+
+    name_lower = name.lower()
+    if "pre-release" in name_lower or "-pre" in name_lower or "(pre)" in name_lower:
+        sub = -2
+    elif "cartridge" in name_lower or "-card" in name_lower:
+        sub = -1
+    else:
+        sub = 0
+
+    raw_match = re.search(r'\((\d+\.\d+\.\d+\.\d{4})\)', name)
+    raw_val = raw_match.group(1) if raw_match else ""
+
+    return (*v_parts, sub, raw_val)
 
 def generate_dat_from_local_zips():
     log_print("Scanning directory for Firmware*.zip archives (excluding Extracted*)...")
