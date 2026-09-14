@@ -1,0 +1,90 @@
+name: 📄 Generate DATfile Only
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build_dat:
+    name: 📄 Scan Archives & Build Single DATfile
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: ⬇️ Checkout repository (main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: ⚙️ Install dependencies
+        run: |
+          pip install requests cryptography tqdm
+
+      - name: ⬇️ Setup hactool-linux
+        run: |
+          if [ -f "hactool-linux" ]; then
+            cp hactool-linux hactool
+            chmod +x hactool
+          else
+            echo "Error: hactool-linux not found."
+            exit 1
+          fi
+
+      - name: 📦 Download all Firmware ZIPs (excluding Extracted)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "INFO: Fetching release tags..."
+          TAGS=$(gh release list -L 1000 --json tagName --jq '.[].tagName')
+
+          mkdir -p firmware_zips
+          cd firmware_zips
+
+          for TAG in $TAGS; do
+            echo "⬇️ Checking release $TAG for Firmware archive..."
+            gh release download "$TAG" -p "Firmware*.zip" --clobber 2>/dev/null || true
+          done
+
+          cd ..
+          mv firmware_zips/*.zip . 2>/dev/null || true
+          rm -rf firmware_zips
+
+          echo "INFO: Downloaded archives count: $(ls -1 Firmware*.zip 2>/dev/null | grep -v '^Extracted' | wc -l)"
+
+      - name: 🛠️ Execute DAT Generation from Archives
+        run: |
+          python3 firmware_downloader.py --dat-from-zips --logs
+
+      - name: 🚀 Commit Clean DATfile to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git rm -f Nintendo*.dat 2>/dev/null || true
+          git add Nintendo*.dat
+          rm -f *.zip
+
+          if git diff --staged --quiet; then
+            echo "INFO: DATfile is already completely up to date. Nothing to commit."
+            exit 0
+          fi
+
+          git commit -m "Update Nintendo Switch Firmware DATfile [skip ci]"
+
+          for attempt in {1..10}; do
+            git fetch origin main
+            if git push origin HEAD:main; then
+              echo "✅ DATfile successfully committed to main!"
+              break
+            else
+              git rebase origin/main
+              sleep 2
+            fi
+          done
