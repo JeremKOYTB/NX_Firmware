@@ -453,7 +453,7 @@ def read_cnmt_entries(cnmt_path):
     except Exception:
         return None, 0, []
 
-def find_firmware_identity(folder_path):
+def find_firmware_identity(folder_path, tag_hint=""):
     hactool_path = HACTOOL_PATH if exists(HACTOOL_PATH) else ("hactool.exe" if os.name == "nt" else "hactool")
     keys_path = join(BASE_DIR, "prod.keys")
     if not exists(keys_path):
@@ -472,6 +472,7 @@ def find_firmware_identity(folder_path):
 
     real_full_ver = ""
     sdk_title = ""
+    comm_ver = ""
     system_version_data_nca = None
     sdk_found = False
 
@@ -533,12 +534,26 @@ def find_firmware_identity(folder_path):
                     for fl in fls:
                         with open(join(r, fl), "rb") as vf:
                             raw_data += vf.read()
+
             if raw_data:
-                sdk_m = re.search(rb'NintendoSDK Firmware for NX [0-9.-]+', raw_data)
-                if sdk_m:
-                    sdk_title = sdk_m.group(0).decode("utf-8")
-                    sdk_found = True
-                    log_print(f"✨ Raw NintendoSDK signature discovered: {sdk_title}")
+                # Structure officielle Nintendo Switch FirmwareVersion (256 octets)
+                if len(raw_data) >= 0x100:
+                    disp_ver_str = raw_data[0x68:0x80].split(b'\x00')[0].decode('utf-8', errors='ignore').strip()
+                    disp_title_str = raw_data[0x80:0x100].split(b'\x00')[0].decode('utf-8', errors='ignore').strip()
+                    if disp_ver_str:
+                        comm_ver = disp_ver_str
+                        log_print(f"✨ Binary Display Version resolved: {comm_ver}")
+                    if disp_title_str.startswith("NintendoSDK"):
+                        sdk_title = disp_title_str
+                        sdk_found = True
+                        log_print(f"✨ Binary SDK Signature resolved: {sdk_title}")
+
+                if not sdk_title:
+                    sdk_m = re.search(rb'NintendoSDK Firmware for NX [0-9.-]+', raw_data)
+                    if sdk_m:
+                        sdk_title = sdk_m.group(0).decode("utf-8")
+                        sdk_found = True
+                        log_print(f"✨ Raw NintendoSDK signature discovered via regex: {sdk_title}")
         except Exception as e:
             log_print(f"RomFS error: {e}")
         finally:
@@ -546,39 +561,36 @@ def find_firmware_identity(folder_path):
     else:
         log_print("⚠️ Warning: SystemVersion Data NCA not found.")
 
-    if real_full_ver:
-        simple_ver = ".".join(real_full_ver.split(".")[:3])
-    else:
-        base_name = basename(folder_path.rstrip("/\\"))
-        ver_match = re.search(r'(\d+\.\d+\.\d+)', base_name)
-        simple_ver = ver_match.group(1) if ver_match else "0.0.0"
-        real_full_ver = f"{simple_ver}.0000"
-
-    comm_ver = None
-    if sdk_title:
-        sdk_v_match = re.search(r'NX\s+(\d+\.\d+\.\d+)', sdk_title)
+    if not comm_ver and sdk_title:
+        sdk_v_match = re.search(r'NX\s+([0-9a-zA-Z\.\-_]+)', sdk_title)
         if sdk_v_match:
             comm_ver = sdk_v_match.group(1)
 
-    if not comm_ver and real_full_ver in GBATEMP_MAPPING:
-        comm_ver = GBATEMP_MAPPING[real_full_ver]['disp_ver']
-
     if not comm_ver:
-        comm_ver = ".".join(real_full_ver.split(".")[:3]) if real_full_ver else simple_ver
+        if real_full_ver:
+            comm_ver = ".".join(real_full_ver.split(".")[:3])
+        else:
+            base_name = basename(folder_path.rstrip("/\\"))
+            ver_match = re.search(r'(\d+\.\d+\.\d+)', base_name)
+            comm_ver = ver_match.group(1) if ver_match else "0.0.0"
+
+    if not real_full_ver:
+        real_full_ver = f"{comm_ver}.0000"
+
+    # Détection stricte et normalisée du suffixe officiel (sans [Rebootless] ni (pre))
+    hint = f"{folder_path} {tag_hint}".lower()
+    suffix = ""
+    if "-pre" in hint or "(pre" in hint or "pre-release" in hint:
+        suffix = " (Pre-Release)"
+    elif "-card" in hint or "cartridge" in hint or "card" in hint:
+        suffix = " (Cartridge)"
 
     if sdk_found and sdk_title and real_full_ver:
-        final_line = f"Firmware {comm_ver} ({sdk_title}) ({real_full_ver})"
+        final_line = f"Firmware {comm_ver} ({sdk_title}) ({real_full_ver}){suffix}"
     elif real_full_ver in GBATEMP_MAPPING:
         final_line = GBATEMP_MAPPING[real_full_ver]['original_line']
-    elif real_full_ver:
-        final_line = f"Firmware {comm_ver} ({real_full_ver})"
     else:
-        final_line = f"Firmware {comm_ver}"
-
-    if real_full_ver in GBATEMP_MAPPING and GBATEMP_MAPPING[real_full_ver].get('suffix'):
-        sfx = GBATEMP_MAPPING[real_full_ver]['suffix']
-        if sfx and sfx not in final_line:
-            final_line = f"{final_line} {sfx}"
+        final_line = f"Firmware {comm_ver} ({real_full_ver}){suffix}"
 
     return final_line, sdk_found
 
@@ -859,32 +871,6 @@ class FirmwareDownloader:
                         nca_hash
                     ))
 
-def extract_version_order(game_data):
-    name = game_data.get('name', '')
-    match = re.search(r'Firmware\s+(\d+(?:\.\d+)+)', name)
-    if match:
-        v_parts = [int(p) for p in match.group(1).split('.')]
-        while len(v_parts) < 3:
-            v_parts.append(0)
-    else:
-        v_parts = [0, 0, 0]
-
-    name_lower = name.lower()
-    if "-pre" in name_lower or "(pre)" in name_lower:
-        sub = -2
-    elif "card" in name_lower or "cartridge" in name_lower:
-        sub = -1
-    elif "rebootless" in name_lower:
-        rm = re.search(r'rebootless(?:\s*update)?\s*(\d+)', name_lower)
-        sub = int(rm.group(1)) if rm else 1
-    else:
-        sub = 0
-
-    raw_match = re.search(r'\((\d+\.\d+\.\d+\.\d{4})\)', name)
-    raw_val = raw_match.group(1) if raw_match else ""
-
-    return (*v_parts, sub, raw_val)
-
 def generate_dat_from_local_zips():
     log_print("Scanning directory for Firmware*.zip archives (excluding Extracted*)...")
     get_gbatemp_firmwares()
@@ -922,7 +908,6 @@ def generate_dat_from_local_zips():
                     for member in sorted(nca_members, key=lambda x: basename(x.filename)):
                         fname = basename(member.filename)
                         
-                        # Extraire uniquement les CNMT et NCA légers nécessaires pour l'inspection hactool
                         if fname.endswith(".cnmt.nca") or member.file_size <= 5242880:
                             zf.extract(member, tmp_ident_dir)
 
@@ -946,16 +931,12 @@ def generate_dat_from_local_zips():
                         })
                         pbar.update(1)
 
-            identity_line, _ = find_firmware_identity(tmp_ident_dir)
             m_tag = re.search(r'Firmware[\.\s]([0-9a-zA-Z\.\-_]+?)(?:\.zip|$)', zname, re.IGNORECASE)
             raw_tag = m_tag.group(1).strip() if m_tag else zname.replace(".zip", "")
+            identity_line, _ = find_firmware_identity(tmp_ident_dir, raw_tag)
 
             if identity_line:
                 resolved_name = identity_line
-                if "-pre" in raw_tag.lower() and "pre" not in resolved_name.lower():
-                    resolved_name = f"{resolved_name} (pre)"
-                elif "-card" in raw_tag.lower() and "card" not in resolved_name.lower() and "cartridge" not in resolved_name.lower():
-                    resolved_name = f"{resolved_name} (cartridge)"
             else:
                 resolved_name = f"Firmware {raw_tag}"
                 clean_v = raw_tag.replace("-card", "").replace("-pre", "")
@@ -1127,13 +1108,9 @@ def sync_datfile_from_releases():
                     })
                     pbar.update(1)
 
-            identity_line, _ = find_firmware_identity(extract_folder)
+            identity_line, _ = find_firmware_identity(extract_folder, tag)
             if identity_line:
                 resolved_name = identity_line
-                if "-pre" in tag.lower() and "pre" not in resolved_name.lower():
-                    resolved_name = f"{resolved_name} (pre)"
-                elif "-card" in tag.lower() and "card" not in resolved_name.lower() and "cartridge" not in resolved_name.lower():
-                    resolved_name = f"{resolved_name} (cartridge)"
             else:
                 resolved_name = f"Firmware {tag}"
                 if clean_v in GBATEMP_MAPPING:
@@ -1658,7 +1635,7 @@ if __name__ == "__main__":
     for dl in final_downloaders:
         ver_dir_path = join(BASE_DIR, dl.ver_dir)
         if exists(ver_dir_path):
-            real_identity, sdk_found = find_firmware_identity(ver_dir_path)
+            real_identity, sdk_found = find_firmware_identity(ver_dir_path, dl.ver_string_full)
             if real_identity:
                 dl.original_line = real_identity
             dl.sdk_found = sdk_found
