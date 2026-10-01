@@ -1,0 +1,489 @@
+{
+    "timestamp": 1781845841,
+    "all_titles": {
+        "0100000000000006": {
+            "id": "0100000000000006",
+            "name": "usb-sysmodule"
+        },
+        "0100000000000007": {
+            "id": "0100000000000007",
+            "name": "tma-sysmodule"
+        },
+        "0100000000000008": {
+            "id": "0100000000000008",
+            "name": "boot2.ProdBoot-sysmodule"
+        },
+        "0100000000000009": {
+            "id": "0100000000000009",
+            "name": "settings-sysmodule"
+        },
+        "010000000000000A": {
+            "id": "010000000000000A",
+            "name": "bus-sysmodule"
+        },
+        "010000000000000B": {
+            "id": "010000000000000B",
+            "name": "bluetooth-sysmodule"
+        },
+        "010000000000000C": {
+            "id": "010000000000000C",
+            "name": "bcat-sysmodule"
+        },
+        "010000000000000E": {
+            "id": "010000000000000E",
+            "name": "friends-sysmodule"
+        },
+        "010000000000000F": {
+            "id": "010000000000000F",
+            "name": "nifm-sysmodule"
+        },
+        "0100000000000010": {
+            "id": "0100000000000010",
+            "name": "ptm-sysmodule"
+        },
+        "0100000000000012": {
+            "id": "0100000000000012",
+            "name": "bsdsockets-sysmodule"
+        },
+        "0100000000000013": {
+            "id": "0100000000000013",
+            "name": "hid-sysmodule"
+        },
+        "0100000000000014": {
+            "id": "0100000000000014",
+            "name": "audio-sysmodule"
+        },
+        "0100000000000015": {
+            "id": "0100000000000015",
+            "name": "LogManager.Prod-sysmodule"
+        },
+        "0100000000000016": {
+            "id": "0100000000000016",
+            "name": "wlan-sysmodule"
+        },
+        "0100000000000018": {
+            "id": "0100000000000018",
+            "name": "ldn-sysmodule"
+        },
+        "0100000000000019": {
+            "id": "0100000000000019",
+            "name": "nvservices-sysmodule"
+        },
+        "010000000000001A": {
+            "id": "010000000000001A",
+            "name": "pcv-sysmodule"
+        },
+        "010000000000001B": {
+            "id": "010000000000001B",
+            "name": "ppc-sysmodule"
+        },
+        "010000000000001C": {
+            "id": "010000000000001C",
+            "name": "nvnflinger-sysmodule"
+        },
+        "010000000000001D": {
+            "id": "010000000000001D",
+            "name": "pcie.withoutHb-sysmodule"
+        },
+        "010000000000001E": {
+            "id": "010000000000001E",
+            "name": "account-sysmodule"
+        },
+        "010000000000001F": {
+            "id": "010000000000001F",
+            "name": "ns-sysmodule"
+        },
+        "0100000000000020": {
+            "id": "0100000000000020",
+            "name": "nfc-sysmodule"
+        },
+        "0100000000000021": {
+            "id": "0100000000000021",
+            "name": "psc-sysmodule"
+        },
+        "0100000000000022": {
+            "id": "0100000000000022",
+            "name": "capsrv-sysmodule"
+        },
+        "0100000000000023": {
+            "id": "0100000000000023",
+            "name": "am-sysmodule"
+        },
+        "0100000000000024": {
+            "id": "0100000000000024",
+            "name": "ssl-sysmodule"
+        },
+        "0100000000000025": {
+            "id": "0100000000000025",
+            "name": "nim-sysmodule"
+        },
+        "0100000000000029": {
+            "id": "0100000000000029",
+            "name": "lbl-sysmodule"
+        },
+        "010000000000002A": {
+            "id": "010000000000002A",
+            "name": "btm-sysmodule"
+        },
+        "010000000000002B": {
+            "id": "010000000000002B",
+            "name": "erpt-sysmodule"
+        },
+        "010000000000002D": {
+            "id": "010000000000002D",
+            "name": "vi-sysmodule"
+        },
+        "010000000000002E": {
+            "id": "010000000000002E",
+            "name": "pctl-sysmodule"
+        },
+        "010000000000002F": {
+            "id": "010000000000002F",
+            "name": "npns-sysmodule"
+        },
+        "0100000000000030": {
+            "id": "0100000000000030",
+            "name": "eupld-sysmodule"
+        },
+        "0100000000000031": {
+            "id": "0100000000000031",
+            "name": "glue-sysmodule"
+        },
+        "0100000000000032": {
+            "id": "0100000000000032",
+            "name": "eclct-sysmodule"
+        },
+        "0100000000000033": {
+            "id": "0100000000000033",
+            "name": "es-sysmodule"
+        },
+        "0100000000000034": {
+            "id": "0100000000000034",
+            "name": "fatal-sysmodule"
+        },
+        "0100000000000035": {
+            "id": "0100000000000035",
+            "name": "grc-sysmodule"
+        },
+        "0100000000000036": {
+            "id": "0100000000000036",
+            "name": "creport-sysmodule"
+        },
+        "0100000000000037": {
+            "id": "0100000000000037",
+            "name": "ro-sysmodule"
+        },
+        "0100000000000039": {
+            "id": "0100000000000039",
+            "name": "sdb-sysmodule"
+        },
+        "010000000000003A": {
+            "id": "010000000000003A",
+            "name": "migration-sysmodule"
+        },
+        "010000000000003B": {
+            "id": "010000000000003B",
+            "name": "jit-sysmodule"
+        },
+        "010000000000003C": {
+            "id": "010000000000003C",
+            "name": "jpegdec-sysmodule"
+        },
+        "010000000000003D": {
+            "id": "010000000000003D",
+            "name": "safemode-sysmodule"
+        },
+        "010000000000003E": {
+            "id": "010000000000003E",
+            "name": "olsc-sysmodule"
+        },
+        "0100000000000041": {
+            "id": "0100000000000041",
+            "name": "ngct-sysmodule"
+        },
+        "0100000000000042": {
+            "id": "0100000000000042",
+            "name": "pgl-sysmodule"
+        },
+        "0100000000000800": {
+            "id": "0100000000000800",
+            "name": "CertStore"
+        },
+        "0100000000000801": {
+            "id": "0100000000000801",
+            "name": "ErrorMessage"
+        },
+        "0100000000000802": {
+            "id": "0100000000000802",
+            "name": "MiiModel"
+        },
+        "0100000000000803": {
+            "id": "0100000000000803",
+            "name": "BrowserDll"
+        },
+        "0100000000000804": {
+            "id": "0100000000000804",
+            "name": "Help"
+        },
+        "0100000000000805": {
+            "id": "0100000000000805",
+            "name": "Chinese and Korean dictionaries"
+        },
+        "0100000000000806": {
+            "id": "0100000000000806",
+            "name": "NgWord"
+        },
+        "0100000000000807": {
+            "id": "0100000000000807",
+            "name": "SsidList"
+        },
+        "0100000000000808": {
+            "id": "0100000000000808",
+            "name": "Dictionary"
+        },
+        "0100000000000809": {
+            "id": "0100000000000809",
+            "name": "SystemVersion"
+        },
+        "010000000000080A": {
+            "id": "010000000000080A",
+            "name": "AvatarImage"
+        },
+        "010000000000080B": {
+            "id": "010000000000080B",
+            "name": "LocalNews"
+        },
+        "010000000000080C": {
+            "id": "010000000000080C",
+            "name": "Eula"
+        },
+        "010000000000080D": {
+            "id": "010000000000080D",
+            "name": "UrlBlackList"
+        },
+        "010000000000080E": {
+            "id": "010000000000080E",
+            "name": "TimeZoneBinary"
+        },
+        "0100000000000810": {
+            "id": "0100000000000810",
+            "name": "FontNintendoExtension"
+        },
+        "0100000000000811": {
+            "id": "0100000000000811",
+            "name": "FontStandard"
+        },
+        "0100000000000812": {
+            "id": "0100000000000812",
+            "name": "FontKorean"
+        },
+        "0100000000000813": {
+            "id": "0100000000000813",
+            "name": "FontChineseTraditional"
+        },
+        "0100000000000814": {
+            "id": "0100000000000814",
+            "name": "FontChineseSimple"
+        },
+        "0100000000000816": {
+            "id": "0100000000000816",
+            "name": "SystemUpdate"
+        },
+        "0100000000000818": {
+            "id": "0100000000000818",
+            "name": "FirmwareDebugSettings"
+        },
+        "0100000000000819": {
+            "id": "0100000000000819",
+            "name": "BootImagePackage"
+        },
+        "010000000000081A": {
+            "id": "010000000000081A",
+            "name": "BootImagePackageSafe"
+        },
+        "010000000000081B": {
+            "id": "010000000000081B",
+            "name": "BootImagePackageExFat"
+        },
+        "010000000000081C": {
+            "id": "010000000000081C",
+            "name": "BootImagePackageExFatSafe"
+        },
+        "010000000000081D": {
+            "id": "010000000000081D",
+            "name": "FatalMessage"
+        },
+        "010000000000081E": {
+            "id": "010000000000081E",
+            "name": "ControllerIcon"
+        },
+        "010000000000081F": {
+            "id": "010000000000081F",
+            "name": "PlatformConfigIcosa"
+        },
+        "0100000000000820": {
+            "id": "0100000000000820",
+            "name": "PlatformConfigCopper"
+        },
+        "0100000000000821": {
+            "id": "0100000000000821",
+            "name": "PlatformConfigHoag"
+        },
+        "0100000000000822": {
+            "id": "0100000000000822",
+            "name": "ControllerFirmware"
+        },
+        "0100000000000823": {
+            "id": "0100000000000823",
+            "name": "NgWord2"
+        },
+        "0100000000000824": {
+            "id": "0100000000000824",
+            "name": "PlatformConfigIcosaMariko"
+        },
+        "0100000000000825": {
+            "id": "0100000000000825",
+            "name": "ApplicationBlackList"
+        },
+        "0100000000000826": {
+            "id": "0100000000000826",
+            "name": "RebootlessSystemUpdateVersion"
+        },
+        "0100000000000827": {
+            "id": "0100000000000827",
+            "name": "ContentActionTable"
+        },
+        "0100000000000828": {
+            "id": "0100000000000828",
+            "name": "FunctionBlackList"
+        },
+        "0100000000000830": {
+            "id": "0100000000000830",
+            "name": "NgWordT"
+        },
+        "0100000000000831": {
+            "id": "0100000000000831",
+            "name": "PlatformConfigAula"
+        },
+        "0100000000000832": {
+            "id": "0100000000000832",
+            "name": "AulaFirmware"
+        },
+        "0100000000001000": {
+            "id": "0100000000001000",
+            "name": "qlaunch (SystemAppletMenu)"
+        },
+        "0100000000001001": {
+            "id": "0100000000001001",
+            "name": "auth (LibraryAppletAuth)"
+        },
+        "0100000000001002": {
+            "id": "0100000000001002",
+            "name": "cabinet (LibraryAppletCabinet)"
+        },
+        "0100000000001003": {
+            "id": "0100000000001003",
+            "name": "controller (LibraryAppletController)"
+        },
+        "0100000000001004": {
+            "id": "0100000000001004",
+            "name": "dataErase (LibraryAppletDataErase)"
+        },
+        "0100000000001005": {
+            "id": "0100000000001005",
+            "name": "error (LibraryAppletError)"
+        },
+        "0100000000001006": {
+            "id": "0100000000001006",
+            "name": "netConnect (LibraryAppletNetConnect)"
+        },
+        "0100000000001007": {
+            "id": "0100000000001007",
+            "name": "playerSelect (LibraryAppletPlayerSelect)"
+        },
+        "0100000000001008": {
+            "id": "0100000000001008",
+            "name": "swkbd (LibraryAppletSwkbd)"
+        },
+        "0100000000001009": {
+            "id": "0100000000001009",
+            "name": "miiEdit (LibraryAppletMiiEdit)"
+        },
+        "010000000000100A": {
+            "id": "010000000000100A",
+            "name": "web (LibraryAppletWeb)"
+        },
+        "010000000000100B": {
+            "id": "010000000000100B",
+            "name": "shop (LibraryAppletShop)"
+        },
+        "010000000000100C": {
+            "id": "010000000000100C",
+            "name": "overlayDisp (OverlayApplet)"
+        },
+        "010000000000100D": {
+            "id": "010000000000100D",
+            "name": "photoViewer (LibraryAppletPhotoViewer)"
+        },
+        "010000000000100F": {
+            "id": "010000000000100F",
+            "name": "offlineWeb (LibraryAppletOfflineWeb)"
+        },
+        "0100000000001010": {
+            "id": "0100000000001010",
+            "name": "loginShare (LibraryAppletLoginShare)"
+        },
+        "0100000000001011": {
+            "id": "0100000000001011",
+            "name": "wifiWebAuth (LibraryAppletWifiWebAuth)"
+        },
+        "0100000000001012": {
+            "id": "0100000000001012",
+            "name": "starter (DummyStarter)"
+        },
+        "0100000000001013": {
+            "id": "0100000000001013",
+            "name": "myPage (LibraryAppletMyPage)"
+        },
+        "0100000000001015": {
+            "id": "0100000000001015",
+            "name": "MaintenanceMenu"
+        },
+        "0100000000000045": {
+            "id": "0100000000000045",
+            "name": "omm-sysmodule"
+        },
+        "0100000000000046": {
+            "id": "0100000000000046",
+            "name": "eth-sysmodule"
+        },
+        "0100000000000050": {
+            "id": "0100000000000050",
+            "name": "ngc-sysmodule"
+        },
+        "0100000000000859": {
+            "id": "0100000000000859",
+            "name": "ClientCertData"
+        },
+        "010000000000085C": {
+            "id": "010000000000085C",
+            "name": "GameCardConfigurationData"
+        },
+        "0100000000001048": {
+            "id": "0100000000001048",
+            "name": "\"splay\" applet"
+        },
+        "0100000000001042": {
+            "id": "0100000000001042",
+            "name": "\"systemWeb\" applet"
+        },
+        "0100000000001043": {
+            "id": "0100000000001043",
+            "name": "\"openWeb\" applet"
+        },
+        "01008BB00013C000": {
+            "id": "01008BB00013C000",
+            "name": "\"flog\" NES emulator"
+        }
+    }
+}
