@@ -1,14 +1,24 @@
-name: 📄 Generate DATfile Only
+name: 📄 Generate & Sync DATfile
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Mode de mise à jour'
+        required: true
+        default: 'sync_releases'
+        type: choice
+        options:
+          - 'sync_releases'
+          - 'from_zips'
+          - 'fetch_nintendo'
 
 permissions:
   contents: write
 
 jobs:
   build_dat:
-    name: 📄 Scan Archives & Build Single DATfile
+    name: 📄 Update DATfile
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -37,7 +47,17 @@ jobs:
             exit 1
           fi
 
-      - name: 📦 Download all Firmware ZIPs (excluding Extracted)
+      # Mode 1 (Par défaut) : Synchroniser le DAT existant avec les Releases GitHub
+      - name: 🔄 Sync DATfile from GitHub Releases
+        if: ${{ github.event.inputs.mode == 'sync_releases' || github.event.inputs.mode == '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 firmware_downloader.py --sync-releases --logs
+
+      # Mode 2 : Reconstruire entièrement le DAT en téléchargeant tous les ZIPs du dépôt
+      - name: 📦 Download all Firmware ZIPs & Build DAT
+        if: ${{ github.event.inputs.mode == 'from_zips' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -56,22 +76,37 @@ jobs:
           mv firmware_zips/*.zip . 2>/dev/null || true
           rm -rf firmware_zips
 
-          echo "INFO: Downloaded archives count: $(ls -1 Firmware*.zip 2>/dev/null | grep -v '^Extracted' | wc -l)"
-
-      - name: 🛠️ Execute DAT Generation from Archives
-        run: |
           python3 firmware_downloader.py --dat-from-zips --logs
 
-      - name: 🚀 Commit Clean DATfile to main
+      # Mode 3 : Télécharger le tout dernier firmware depuis les serveurs Nintendo et mettre à jour le DAT
+      - name: 🌐 Download latest firmware from Nintendo & Update DAT
+        if: ${{ github.event.inputs.mode == 'fetch_nintendo' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 firmware_downloader.py --datfile --logs
+
+      - name: 🚀 Commit Updated DATfile to main
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Supprimer les anciens fichiers DAT obsolètes
-          git rm -f Nintendo*.dat 2>/dev/null || true
+          # Trouver le dernier DAT généré
+          LATEST_DAT=$(ls -t Nintendo*.dat 2>/dev/null | head -n 1)
 
-          # Ajouter le nouveau fichier consolidé
-          git add Nintendo*.dat
+          if [ -z "$LATEST_DAT" ]; then
+            echo "WARNING: No DATfile found."
+            exit 0
+          fi
+
+          # Nettoyer les anciens DATs locaux tout en gardant le plus récent
+          for f in Nintendo*.dat; do
+            if [ "$f" != "$LATEST_DAT" ]; then
+              git rm -f "$f" 2>/dev/null || true
+            fi
+          done
+
+          git add "$LATEST_DAT"
           rm -f *.zip
 
           if git diff --staged --quiet; then
