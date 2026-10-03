@@ -100,7 +100,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Trouver le dernier DAT généré
+          # Trouver le dernier DAT physique généré
           LATEST_DAT=$(ls -t Nintendo*.dat 2>/dev/null | head -n 1)
 
           if [ -z "$LATEST_DAT" ]; then
@@ -108,13 +108,10 @@ jobs:
             exit 0
           fi
 
-          # Nettoyer les anciens DATs locaux tout en gardant le plus récent
-          for f in Nintendo*.dat; do
-            if [ "$f" != "$LATEST_DAT" ]; then
-              git rm -f "$f" 2>/dev/null || true
-            fi
-          done
+          # Supprimer de l'index Git TOUS les anciens fichiers DAT suivis
+          git ls-files "Nintendo*.dat" | grep -v -F "$LATEST_DAT" | xargs -r git rm -f 2>/dev/null || true
 
+          # Ajouter uniquement le tout dernier fichier DAT
           git add "$LATEST_DAT"
           rm -f *.zip
 
