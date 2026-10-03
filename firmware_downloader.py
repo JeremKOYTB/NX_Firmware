@@ -52,6 +52,7 @@ parser.add_argument("--extract-nsp", action="store_true", help="Extract raw NCA 
 parser.add_argument("--datfile", action="store_true", help="Generate or update the Logiqx XML DAT file used for ROM management.")
 parser.add_argument("--dat-from-zips", action="store_true", help="Scan all local 'Firmware*.zip' archives (strictly ignoring 'Extracted*') to build the DATfile.")
 parser.add_argument("--sync-releases", action="store_true", help="Scan all GitHub releases and generate/sync the DAT file for all available firmwares in order.")
+parser.add_argument("--sync-latest", action="store_true", help="Scan only the latest GitHub release and sync it to the DAT file.")
 parser.add_argument("--displayversion", action="store_true", help="Use the simplified commercial version (e.g. 22.5.0 instead of 22.5.0.0480) for folder and ZIP/NSP naming.")
 parser.add_argument("--notimeout", action="store_true", help="Disable the 60 seconds timeout for user prompts.")
 parser.add_argument("--logs", action="store_true", help="Enable verbose logging to display every action performed by the script.")
@@ -1025,8 +1026,8 @@ def generate_dat_from_local_zips():
 
     print(f"\n✅ DATfile successfully generated at repository root: {new_dat_name} ({len(sorted_games)} registered firmware(s)).")
 
-def sync_datfile_from_releases():
-    log_print("Starting automated DATfile synchronization from GitHub releases...")
+def sync_datfile_from_releases(latest_only=False):
+    log_print(f"Starting automated DATfile synchronization from GitHub releases (latest_only={latest_only})...")
     get_gbatemp_firmwares()
 
     dat_files = glob(join(BASE_DIR, "Nintendo*Nintendo Switch Firmware (*)*.dat"))
@@ -1053,8 +1054,9 @@ def sync_datfile_from_releases():
 
     print(f"INFO: Loaded {len(existing_games)} existing firmware entry/entries from local DAT file(s).")
 
+    limit = "1" if latest_only else "1000"
     try:
-        cmd = ["gh", "release", "list", "-L", "1000", "--json", "tagName", "--jq", ".[].tagName"]
+        cmd = ["gh", "release", "list", "-L", limit, "--json", "tagName", "--jq", ".[].tagName"]
         res = run(cmd, stdout=PIPE, stderr=PIPE, text=True)
         if res.returncode != 0:
             print(f"ERROR: Failed to retrieve release list via gh CLI: {res.stderr.strip()}")
@@ -1208,7 +1210,11 @@ if __name__ == "__main__":
         sys.exit(0)
 
     if args.sync_releases:
-        sync_datfile_from_releases()
+        sync_datfile_from_releases(latest_only=False)
+        sys.exit(0)
+
+    if args.sync_latest:
+        sync_datfile_from_releases(latest_only=True)
         sys.exit(0)
 
     if args.allversion or args.displayversion or args.datfile:
