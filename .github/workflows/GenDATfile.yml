@@ -6,9 +6,10 @@ on:
       mode:
         description: 'Mode de mise à jour'
         required: true
-        default: 'sync_releases'
+        default: 'sync_latest'
         type: choice
         options:
+          - 'sync_latest'
           - 'sync_releases'
           - 'from_zips'
           - 'fetch_nintendo'
@@ -47,15 +48,23 @@ jobs:
             exit 1
           fi
 
-      # Mode 1 (Par défaut) : Synchroniser le DAT existant avec les Releases GitHub
-      - name: 🔄 Sync DATfile from GitHub Releases
-        if: ${{ github.event.inputs.mode == 'sync_releases' || github.event.inputs.mode == '' }}
+      # Mode 1 (Par défaut) : Synchroniser uniquement la toute dernière release GitHub
+      - name: ⚡ Sync ONLY Latest Release to DATfile
+        if: ${{ github.event.inputs.mode == 'sync_latest' || github.event.inputs.mode == '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 firmware_downloader.py --sync-latest --logs
+
+      # Mode 2 : Synchroniser toutes les releases GitHub manquantes
+      - name: 🔄 Sync All Missing DATfile Entries from GitHub Releases
+        if: ${{ github.event.inputs.mode == 'sync_releases' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 firmware_downloader.py --sync-releases --logs
 
-      # Mode 2 : Reconstruire entièrement le DAT en téléchargeant tous les ZIPs du dépôt
+      # Mode 3 : Reconstruire entièrement le DAT en téléchargeant tous les ZIPs du dépôt
       - name: 📦 Download all Firmware ZIPs & Build DAT
         if: ${{ github.event.inputs.mode == 'from_zips' }}
         env:
@@ -78,7 +87,7 @@ jobs:
 
           python3 firmware_downloader.py --dat-from-zips --logs
 
-      # Mode 3 : Télécharger le tout dernier firmware depuis les serveurs Nintendo et mettre à jour le DAT
+      # Mode 4 : Télécharger le tout dernier firmware depuis Nintendo et mettre à jour le DAT
       - name: 🌐 Download latest firmware from Nintendo & Update DAT
         if: ${{ github.event.inputs.mode == 'fetch_nintendo' }}
         env:
