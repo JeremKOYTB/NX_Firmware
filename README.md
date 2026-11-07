@@ -1,6 +1,12 @@
 # NX_Firmware
 Firmware for the Nintendo Switch
 
+# Difference
+
+Extracted.Firmware.x.x.x.zip = for searches for system files on PC, but not for Switch / emulators.
+
+Firmware.x.x.x.zip = for installation on a Switch / emulators
+
 # Utility
 Firmware database for a discord bot
 
